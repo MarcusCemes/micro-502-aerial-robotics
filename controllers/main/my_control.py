@@ -1,28 +1,80 @@
-# You can change anything in this file except the file name of 'my_control.py',
-# the class name of 'MyController', and the method name of 'step_control'.
-
-# Available sensor data includes data['t'], data['x_global'], data['y_global'],
-# data['roll'], data['pitch'], data['yaw'], data['v_forward'], data['v_left'],
-# data['range_front'], data['range_left'], data['range_back'],
-# data['range_right'], data['range_down'], data['yaw_rate'].
+from dataclasses import dataclass
+from enum import Enum
+from typing import TypedDict
 
 import numpy as np
 
-# Don't change the class name of 'MyController'
-class MyController():
-    def __init__(self):
-        self.on_ground = True
-        self.height_desired = 0.5
+AIRBORN_THRESHOLD = 0.48
+TARGET_HEIGHT = 0.5
 
-    # Don't change the method name of 'step_control'
-    def step_control(self, sensor_data):
-        # Take off
-        if self.on_ground and sensor_data['range_down'] < 0.49:
-            control_command = [0.0, 0.0, 0.0, self.height_desired]
-            return control_command
-        # Land
-        else:
-            self.height_desired -= 0.005
-            control_command = [0.0, 0.0, 0.0, self.height_desired]
-            self.on_ground = False
-            return control_command
+
+class SensorData(TypedDict):
+    t: float
+    x_global: float
+    y_global: float
+    roll: float
+    pitch: float
+    yaw: float
+    v_forward: float
+    v_left: float
+    range_front: float
+    range_left: float
+    range_back: float
+    range_right: float
+    range_down: float
+    yaw_rate: float
+
+
+@dataclass
+class ControlCommand:
+    velocity_x: float = 0.0
+    velocity_y: float = 0.0
+    yaw_rate: float = 0.0
+    altitude: float = 0.0
+
+    def to_list(self):
+        return [self.velocity_x, self.velocity_y, self.yaw_rate, self.altitude]
+
+
+class State(Enum):
+    Boot = 0
+    TakeOff = 1
+    Hover = 2
+    Land = 3
+
+
+class MyController:
+    def __init__(self):
+        self.state = State.Boot
+
+    def step_control(self, data: SensorData):
+        self.data = data
+        return self.next().to_list()
+
+    def next(self) -> ControlCommand:
+        match self.state:
+            case State.Boot:
+                print("Custom controller active!")
+                self.update_state(State.TakeOff)
+                return self.next()
+
+            case State.TakeOff:
+                if self.is_airborn():
+                    self.update_state(State.Hover)
+                    return self.next()
+
+                return ControlCommand(altitude=TARGET_HEIGHT)
+
+            case State.Hover:
+                self.update_state(State.Land)
+                return self.next()
+
+            case State.Land:
+                return ControlCommand(altitude=0)
+
+    def is_airborn(self) -> bool:
+        return self.data["range_down"] >= AIRBORN_THRESHOLD
+
+    def update_state(self, state: State):
+        print(f"[STATE] {state}")
+        self.state = state
