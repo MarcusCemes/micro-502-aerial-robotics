@@ -1,11 +1,30 @@
-from math import pi
-from random import random
+from enum import Enum
+from typing import Annotated, Literal, Optional
 
 import numpy as np
+import numpy.typing as npt
 
 from common import Context
 from config import MAP_PX_PER_M, MAP_SIZE, RANGE_THRESHOLD
 from log import Logger
+
+DType = np.float32
+Vector2 = Annotated[npt.NDArray[DType], Literal[2]]
+Vector3 = Annotated[npt.NDArray[DType], Literal[3]]
+
+Matrix1x4 = Annotated[npt.NDArray[DType], Literal[1, 4]]
+Matrix2x2 = Annotated[npt.NDArray[DType], Literal[2, 2]]
+Matrix2x4 = Annotated[npt.NDArray[DType], Literal[2, 4]]
+
+
+UNIT_SENSOR_VECTORS: Matrix2x4 = np.array([[1, 0, -1, 0], [0, 1, 0, -1]], dtype=DType)
+
+
+class Sensor(Enum):
+    Front = 0
+    Left = 1
+    Back = 2
+    Right = 3
 
 
 class Navigation(Logger):
@@ -19,50 +38,64 @@ class Navigation(Logger):
         self.size = size
 
     def update(self) -> None:
-        sensors = self.ctx.sensors
+        loc_detections = np.multiply(self.read_range_readings(), UNIT_SENSOR_VECTORS)
+        # loc_proj_detections = np.multiply(self.reduction_factors(), loc_detections)
+        relative_detections = np.dot(self.yaw_rotation_matrix(), loc_detections)
 
-        self.update_direction(sensors.range_front, 0)
-        # self.update_direction(sensors.range_left, 0.5 * pi)
-        # self.update_direction(sensors.range_left, pi)
-        # self.update_direction(sensors.range_left, 1.5 * pi)
+        self.update_relative_detections(relative_detections)
 
-    def update_direction(self, distance: float, direction: float) -> None:
+    def update_relative_detections(self, detections: Matrix2x4) -> None:
+        position = self.global_position()
+
+        for detection in detections.T:
+            if not np.any(detection):
+                continue
+
+            detection = position + detection
+            self.update_detection(detection)
+
+    def update_detection(self, detection: Vector2) -> None:
+        if coords := self.to_coords(detection):
+            self.map[coords] = 255
+
+    def read_range_readings(self) -> Matrix1x4:
+        s = self.ctx.sensors
+
+        readings = np.array(
+            [
+                s.range_front,
+                s.range_left,
+                s.range_back,
+                s.range_right,
+            ],
+            dtype=DType,
+        )
+
+        return np.where(readings < RANGE_THRESHOLD, readings, 0)
+
+    def reduction_factors(self) -> Matrix1x4:
         """
-        TODO: Improve this to take roll into account!
+        TODO: Correct this function and use it
         """
+        s = self.ctx.sensors
+        return np.repeat(np.cos(np.abs(np.array([s.pitch, s.yaw], DType))), 2)
 
-        if distance >= RANGE_THRESHOLD:
-            return
+    def yaw_rotation_matrix(self) -> Matrix2x2:
+        yaw = self.ctx.sensors.yaw
+        c, s = np.cos(yaw), np.sin(yaw)
+        return np.array([[c, -s], [s, c]], dtype=DType)
 
-        sensors = self.ctx.sensors
-        x_global, y_global = sensors.x_global, sensors.y_global
-        pitch, roll, yaw = sensors.pitch, sensors.roll, sensors.yaw
+    def global_position(self) -> Vector2:
+        s = self.ctx.sensors
+        return np.array([s.x_global, s.y_global], dtype=DType)
 
-        # x = int(x_global + distance * np.cos(yaw + direction) * np.cos(pitch))
-        # y = int(y_global + distance * np.sin(yaw + direction) * np.cos(pitch))
-
-        x = x_global + distance
-        y = y_global
-
-        if self.ctx.debug_tick:
-            print(
-                "x: {:2f}, y: {:2f}, d: {:2f}, d_x: {:2f}, d_y: {:2f}".format(
-                    x_global, y_global, distance, x, y
-                )
-            )
-
-        self.set_occupancy((x, y), True)
-
-    def get_occupancy(self, x: float, y: float) -> bool:
-        x, y = int(x), int(y)
-        return self.map[x, y] != 0
-
-    def set_occupancy(self, position: tuple[float, float], occupied: bool) -> None:
-        coords = self.to_coords(position)
-        self.map[coords] = 255 if occupied else 0
-
-    def to_coords(self, position: tuple[float, float]) -> tuple[int, int]:
-        x, y = position
+    def to_coords(self, position: Vector2) -> Optional[tuple[int, int]]:
+        [x, y] = position
         px_x, px_y = self.size
         size_x, size_y = MAP_SIZE
-        return (int(x * px_x / size_x), int(y * px_y / size_y))
+        cx, cy = (int(x * px_x / size_x), int(y * px_y / size_y))
+
+        if cx < 0 or cx >= px_x or cy < 0 or cy >= px_y:
+            return None
+
+        return (cx, cy)

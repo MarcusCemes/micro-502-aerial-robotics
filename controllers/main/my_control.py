@@ -1,9 +1,8 @@
-from atexit import register
 from dataclasses import dataclass
 from enum import Enum
-from random import random
 from typing import Optional
 
+import numpy as np
 import matplotlib.image
 
 from config import SERVER_ENABLED
@@ -61,12 +60,12 @@ class MyController(Logger):
 
     def step_control(self, data: dict[str, float]):
         self.ctx.sensors = Sensors(**data)
-        # self.ctx.sensors.update_sensors_data(data)
 
         self.nav.update()
 
-        if self.ctx.debug_tick:
-            matplotlib.image.imsave("map.png", self.nav.map, cmap="gray")
+        # if self.ctx.debug_tick:
+        #     img = np.flip(np.flip(self.nav.map, 1), 0)
+        #     matplotlib.image.imsave("map.png", img, cmap="gray")
 
         return [0.0, 0.0, 0.0, 0.2]
 
