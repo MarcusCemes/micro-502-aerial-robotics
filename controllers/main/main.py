@@ -241,9 +241,9 @@ if __name__ == "__main__":
         start = time_ns()
         # Control commands with [v_forward, v_left, yaw_rate, altitude]
         # ---- Select only one of the following control methods ---- #
-        control_commands = drone.action_from_keyboard()
+        # control_commands = drone.action_from_keyboard()
         # control_commands = my_controller.step_control(sensor_data)
-        my_controller.step_control(sensor_data)
+        control_commands = my_controller.step_control(sensor_data)
         # control_commands = example.obstacle_avoidance(sensor_data)
         # control_commands = example.path_planning(sensor_data)
         # map = example.occupancy_map(sensor_data)

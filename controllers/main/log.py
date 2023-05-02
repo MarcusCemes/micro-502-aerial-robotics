@@ -9,14 +9,14 @@ BLUE = "\u001b[34m"
 
 
 class Logger:
-    def info(self, msg: str):
+    def info(self, msg: object):
         self.__log(msg, "INFO ", GREEN)
 
-    def warn(self, msg: str):
+    def warn(self, msg: object):
         self.__log(msg, "WARN ", YELLOW)
 
-    def error(self, msg: str):
+    def error(self, msg: object):
         self.__log(msg, "ERROR", RED)
 
-    def __log(self, msg: str, level: str, color: str):
+    def __log(self, msg: object, level: str, color: str):
         print(f"{color}{level}{RESET} [{self.__class__.__name__}] {msg}")

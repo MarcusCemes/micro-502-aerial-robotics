@@ -63,7 +63,10 @@ class WebApplication(web.Application, Logger):
 
             case (MessageType.Broadcast, payload):
                 for client in self.clients:
-                    await client.send_json(payload)
+                    try:
+                        await client.send_json(payload)
+                    except Exception as e:
+                        self.logger.warning(f"Error sending message: {e}")
 
     async def hello(self, *_):
         return web.Response(text="Drone Controller Server")
@@ -77,6 +80,8 @@ class WebApplication(web.Application, Logger):
         async for msg in ws:
             if msg.type == WSMsgType.ERROR:
                 print(f"WebSocket error: {ws.exception()}")
+
+        self.clients.remove(ws)
 
         return ws
 

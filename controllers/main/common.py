@@ -1,8 +1,6 @@
 from dataclasses import dataclass, field
-from queue import Queue
-from typing import Any, Callable, Set
 
-from utils import Broadcast
+from utils import Broadcast, Vec2
 
 QUEUE_SIZE = 32
 
@@ -27,7 +25,7 @@ class Sensors:
 
 @dataclass
 class State:
-    pass
+    target: Vec2 = field(default_factory=Vec2)
 
 
 @dataclass

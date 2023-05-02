@@ -47,12 +47,17 @@ class Navigation(Logger):
     def update_relative_detections(self, detections: Matrix2x4) -> None:
         position = self.global_position()
 
+        updated = False
         for detection in detections.T:
             if not np.any(detection):
                 continue
 
+            updated = True
             detection = position + detection
             self.update_detection(detection)
+
+        if updated:
+            self.ctx.outlet.broadcast({"type": "map", "data": self.map.tolist()})
 
     def update_detection(self, detection: Vector2) -> None:
         if coords := self.to_coords(detection):
