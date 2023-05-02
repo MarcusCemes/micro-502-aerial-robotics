@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from math import atan2, cos, sin, sqrt
-from typing import Any, Callable, Generator, Tuple, overload, Set, TypeVar
+from math import atan2, cos, pi, sin, sqrt
+from typing import Any, Callable, Generator, Set, Tuple, TypeVar, overload
+
+TWO_PI = 2 * pi
 
 T = TypeVar("T")
 
@@ -92,6 +94,9 @@ class Vec2:
 
         return self
 
+    def to_list(self) -> list[float]:
+        return [self.x, self.y]
+
     def mag(self) -> float:
         return sqrt(self * self)
 
@@ -105,6 +110,15 @@ class Vec2:
 
 def clip(value: float, min_value: float, max_value: float) -> float:
     return min(max(value, min_value), max_value)
+
+
+def normalise_angle(angle: float) -> float:
+    angle = ((angle % TWO_PI) + TWO_PI) % TWO_PI
+
+    if angle > pi:
+        angle -= TWO_PI
+
+    return angle
 
 
 def raytrace(a: Coords, b: Coords) -> Generator[Coords, None, None]:

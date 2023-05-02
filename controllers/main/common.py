@@ -24,13 +24,7 @@ class Sensors:
 
 
 @dataclass
-class State:
-    target: Vec2 = field(default_factory=Vec2)
-
-
-@dataclass
 class Context:
     debug_tick: bool = False
     outlet: Broadcast = field(default_factory=Broadcast)
-    state: State = field(default_factory=State)
     sensors: Sensors = field(default_factory=Sensors)

@@ -9,7 +9,7 @@ from my_control import MyController
 
 DEBUG_COUNT = 32
 
-enable_random_environment = False
+enable_random_environment = True
 
 # Set seed to replicate the random environment
 # random.seed(3000)
@@ -254,7 +254,9 @@ if __name__ == "__main__":
 
         if i == 0:
             elapsed = end - start
-            print(f"[TIME] {int(1e-3 * elapsed)} us")
+
+            if elapsed > 1e6:
+                print(f"[TIME] {int(1e-3 * elapsed)} us")
             my_controller.ctx.debug_tick = False
 
         # Update the drone status in simulation

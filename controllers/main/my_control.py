@@ -2,11 +2,10 @@ import matplotlib.image
 import numpy as np
 
 from common import Context, Sensors
-from config import DEBUG_MAP, LOC_END, SERVER_ENABLED
+from config import DEBUG_MAP, SERVER_ENABLED
 from flight_ctl import FlightController
 from log import Logger
 from navigation import Navigation
-from utils import Vec2
 
 
 class MyController(Logger):
@@ -18,8 +17,6 @@ class MyController(Logger):
         self.flight_ctl = FlightController(ctx)
         self.server = None
 
-        self.ctx.state.target = Vec2(*LOC_END)
-
         if SERVER_ENABLED:
             self._enable_server()
 
@@ -30,8 +27,6 @@ class MyController(Logger):
             ctx.sensors = Sensors(**data)
             ctx.outlet.broadcast({"type": "sensors", "data": data})
 
-            self.nav.update()
-
             cmd = self.flight_ctl.update()
 
             if DEBUG_MAP and self.ctx.debug_tick:
@@ -41,7 +36,7 @@ class MyController(Logger):
             return cmd.to_list()
         except Exception as e:
             self.error(e)
-            return []
+            raise e
 
     def _enable_server(self):
         from server import Server

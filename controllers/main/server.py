@@ -1,4 +1,4 @@
-from asyncio import create_task, gather, run, to_thread
+from asyncio import run, to_thread
 from enum import Enum
 from queue import Queue
 from threading import Thread
@@ -31,7 +31,7 @@ class WebApplication(web.Application, Logger):
         self.add_routes([web.get("/ws", self.websocket_handler)])
 
     async def run(self, port=config.SERVER_PORT):
-        print("Starting server...")
+        self.info("Starting server...")
 
         runner = web.AppRunner(self)
         await runner.setup()
@@ -88,12 +88,15 @@ class WebApplication(web.Application, Logger):
         return ws
 
     async def send_config(self, ws: web.WebSocketResponse):
-        data = {
-            "MAP_PX_PER_M": config.MAP_PX_PER_M,
-            "MAP_SIZE": list(config.MAP_SIZE),
-        }
-
-        await ws.send_json({"type": "config", "data": data})
+        await ws.send_json(
+            {
+                "type": "config",
+                "data": {
+                    "MAP_PX_PER_M": config.MAP_PX_PER_M,
+                    "MAP_SIZE": list(config.MAP_SIZE),
+                },
+            }
+        )
 
 
 class Server(Thread, Logger):

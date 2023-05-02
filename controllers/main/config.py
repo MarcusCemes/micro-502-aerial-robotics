@@ -6,7 +6,4 @@ MAP_SIZE = (5.0, 3.0)
 
 RANGE_THRESHOLD = 1.8
 
-LOC_START = (0.966, 0.837)
-LOC_END = (4.5, 1.0)
-
 DEBUG_MAP = False
