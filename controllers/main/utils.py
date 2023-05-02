@@ -2,12 +2,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from math import atan2, cos, sin, sqrt
-from typing import Any, Callable, overload, Set, TypeVar
+from typing import Any, Callable, Generator, Tuple, overload, Set, TypeVar
 
 T = TypeVar("T")
 
 Subscriber = Callable[[Any], None]
 Unsubscriber = Callable[[], None]
+
+Coords = Tuple[int, int]
 
 
 class Observable:
@@ -103,3 +105,38 @@ class Vec2:
 
 def clip(value: float, min_value: float, max_value: float) -> float:
     return min(max(value, min_value), max_value)
+
+
+def raytrace(a: Coords, b: Coords) -> Generator[Coords, None, None]:
+    """
+    An integer-only implementation of a supercover line algorithm.
+    Enumerates all grid cells that intersect with a line segment.
+    See https://playtechs.blogspot.com/2007/03/raytracing-on-grid.html
+    """
+
+    (x1, y1), (x2, y2) = a, b
+
+    dx = abs(x2 - x1)
+    dy = abs(y2 - y1)
+    n = 1 + dx + dy
+
+    x = x1
+    y = y1
+
+    x_inc = 1 if x2 > x1 else -1
+    y_inc = 1 if y2 > y1 else -1
+
+    error = dx - dy
+    dx *= 2
+    dy *= 2
+
+    for _ in range(n, 0, -1):
+        yield x, y
+
+        if error > 0:
+            x += x_inc
+            error -= dy
+
+        else:
+            y += y_inc
+            error += dx
