@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from math import atan2, cos, pi, sin, sqrt
+from time import time
 from typing import Any, Callable, Generator, Set, Tuple, TypeVar, overload
 
 TWO_PI = 2 * pi
@@ -35,6 +36,17 @@ class Broadcast(Observable):
                 fn(payload)
             except:
                 pass
+
+
+class Timer:
+    def __init__(self):
+        self._timer = 0.0
+
+    def timer_reset(self) -> None:
+        self._timer = time()
+
+    def timer_elapsed(self, duration: float) -> bool:
+        return time() - self._timer >= duration
 
 
 @dataclass

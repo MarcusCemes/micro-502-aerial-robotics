@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 
-from utils import Broadcast, Vec2
+from utils import Broadcast
 
 QUEUE_SIZE = 32
 

@@ -6,4 +6,4 @@ MAP_SIZE = (5.0, 3.0)
 
 RANGE_THRESHOLD = 1.8
 
-DEBUG_MAP = False
+DEBUG_FILES = False

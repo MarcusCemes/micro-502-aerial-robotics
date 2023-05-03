@@ -1,8 +1,5 @@
-import matplotlib.image
-import numpy as np
-
 from common import Context, Sensors
-from config import DEBUG_MAP, SERVER_ENABLED
+from config import SERVER_ENABLED
 from flight_ctl import FlightController
 from log import Logger
 from navigation import Navigation
@@ -13,7 +10,6 @@ class MyController(Logger):
         ctx = Context()
 
         self.ctx = ctx
-        self.nav = Navigation(ctx)
         self.flight_ctl = FlightController(ctx)
         self.server = None
 
@@ -28,10 +24,6 @@ class MyController(Logger):
             ctx.outlet.broadcast({"type": "sensors", "data": data})
 
             cmd = self.flight_ctl.update()
-
-            if DEBUG_MAP and self.ctx.debug_tick:
-                img = np.flip(np.flip(self.nav.map, 1), 0)
-                matplotlib.image.imsave("map.png", img, cmap="gray")
 
             return cmd.to_list()
         except Exception as e:

@@ -1,10 +1,15 @@
 from enum import Enum
+from multiprocessing import Process, Queue
+from queue import Empty, Full
+from time import time
 from typing import Annotated, Literal
 
+import matplotlib.image
 import numpy as np
 import numpy.typing as npt
 from common import Context
-from config import MAP_PX_PER_M, MAP_SIZE, RANGE_THRESHOLD
+from config import DEBUG_FILES, MAP_PX_PER_M, MAP_SIZE, RANGE_THRESHOLD
+from convolution import conv2d
 from log import Logger
 from utils import Coords, Vec2, clip, raytrace
 
@@ -26,6 +31,9 @@ MAP_MAX = 127
 
 UNIT_SENSOR_VECTORS: Matrix2x4 = np.array([[1, 0, -1, 0], [0, 1, 0, -1]], dtype=DTYPE)
 
+KERNEL_SIZE = 15
+KERNEL_SIGMA = 3.0
+
 
 class Sensor(Enum):
     Front = 0
@@ -46,12 +54,22 @@ class Navigation(Logger):
         self.map_dirty = False
         self.size = size
 
+        self.field_computer = PotentialComputer(self.ctx)
+
     def update(self) -> None:
+        field = self.field_computer.recv()
+
+        if field is not None:
+            img = np.flip(np.flip(field, 1), 0)
+            matplotlib.image.imsave("output/field.png", img, cmap="gray")
+
         loc_detections = np.multiply(self.read_range_readings(), UNIT_SENSOR_VECTORS)
         loc_proj_detections = np.multiply(self.reduction_factors(), loc_detections)
         relative_detections = np.dot(self.yaw_rotation_matrix(), loc_proj_detections)
 
         self.paint_relative_detections(relative_detections)
+
+        self.field_computer.send(self.map)
 
     def paint_relative_detections(self, detections: Matrix2x4) -> None:
         position = self.global_position()
@@ -60,16 +78,12 @@ class Navigation(Logger):
             if not np.any(detection):
                 continue
 
-            self.map_dirty = True
-
             out_of_range = np.linalg.norm(detection) > RANGE_THRESHOLD
             detection = position + Vec2(*detection)
             self.paint_detection(position, detection, not out_of_range)
 
-        if self.map_dirty:
-            self.map_dirty = False
-            self.paint_border()
-            self.ctx.outlet.broadcast({"type": "map", "data": self.map.tolist()})
+        self.paint_border()
+        self.ctx.outlet.broadcast({"type": "map", "data": self.map.tolist()})
 
     def paint_detection(self, origin: Vec2, detection: Vec2, detected: bool) -> None:
         coords_origin = self.to_coords(origin)
@@ -134,56 +148,72 @@ class Navigation(Logger):
         self.map[:, 0] = MAP_MAX
         self.map[:, -1] = MAP_MAX
 
-    def potential_map(self) -> Field:
-        kernel = np.array([[0, 1, 0], [1, 1, 1], [0, 1, 0]], dtype=DTYPE)
-        return convolve2D(self.map, kernel, padding=1)  # type: ignore
+
+class FieldGenerator:
+    def __init__(self):
+        super().__init__()
+        self.kernel = self.generate_kernel(KERNEL_SIZE, KERNEL_SIGMA)
+
+    def next(self, map: Map) -> Field:
+        print(f"Applying convolution to map of shape {map.shape}")
+        field = np.zeros(map.shape, dtype=np.uint8)
+        field[map > 0] = 1
+
+        return conv2d(field, self.kernel)
+
+    def generate_kernel(self, size: int, sigma: float) -> npt.NDArray:
+        x = np.linspace(-size, size, 2 * size + 1)
+        kernel = np.exp(-(x**2) / (2 * sigma**2))
+        kernel /= np.sum(kernel)
+        return kernel
 
 
-def convolve2D(image, kernel, padding=0, strides=1):
-    # Cross Correlation
-    kernel = np.flipud(np.fliplr(kernel))
+class PotentialComputer:
+    def __init__(self, ctx: Context):
+        super().__init__()
+        self.ctx = ctx
 
-    # Gather Shapes of Kernel + Image + Padding
-    xKernShape = kernel.shape[0]
-    yKernShape = kernel.shape[1]
-    xImgShape = image.shape[0]
-    yImgShape = image.shape[1]
+        self.maps: Queue[Map] = Queue(1)
+        self.fields: Queue[Field] = Queue(1)
 
-    # Shape of Output Convolution
-    xOutput = int(((xImgShape - xKernShape + 2 * padding) / strides) + 1)
-    yOutput = int(((yImgShape - yKernShape + 2 * padding) / strides) + 1)
-    output = np.zeros((xOutput, yOutput))
+        self.processing = False
 
-    # Apply Equal Padding to All Sides
-    if padding != 0:
-        imagePadded = np.zeros(
-            (image.shape[0] + padding * 2, image.shape[1] + padding * 2)
-        )
-        imagePadded[
-            int(padding) : int(-1 * padding), int(padding) : int(-1 * padding)
-        ] = image
-        print(imagePadded)
-    else:
-        imagePadded = image
+        process = Process(target=run, args=(self.maps, self.fields))
+        process.start()
 
-    # Iterate through image
-    for y in range(image.shape[1]):
-        # Exit Convolution
-        if y > image.shape[1] - yKernShape:
-            break
-        # Only Convolve if y has gone down by the specified Strides
-        if y % strides == 0:
-            for x in range(image.shape[0]):
-                # Go to next row once kernel is out of bounds
-                if x > image.shape[0] - xKernShape:
-                    break
-                try:
-                    # Only Convolve if x has moved by the specified Strides
-                    if x % strides == 0:
-                        output[x, y] = (
-                            kernel * imagePadded[x : x + xKernShape, y : y + yKernShape]
-                        ).sum()
-                except:
-                    break
+        self.generator = FieldGenerator()
 
-    return output
+    def send(self, map: Map) -> None:
+        try:
+            self.maps.put_nowait(map)
+        except Full:
+            pass
+
+    def recv(self) -> Field | None:
+        try:
+            return self.fields.get_nowait()
+        except Empty:
+            return None
+
+
+def run(maps, fields) -> None:
+    kernel = generate_kernel(KERNEL_SIZE, KERNEL_SIGMA)
+
+    if DEBUG_FILES:
+        matplotlib.image.imsave("output/kernel.png", kernel)
+
+    while True:
+        map = maps.get()
+
+        field = np.zeros(map.shape, dtype=np.uint8)
+        field[map > 0] = 1
+        field = conv2d(field, kernel)
+
+        fields.put(field)
+
+
+def generate_kernel(size: int, sigma: float) -> npt.NDArray:
+    ax = np.linspace(-(size - 1) / 2.0, (size - 1) / 2.0, size)
+    gauss = np.exp(-0.5 * np.square(ax) / np.square(sigma))
+    kernel = np.outer(gauss, gauss)
+    return kernel / np.sum(kernel)

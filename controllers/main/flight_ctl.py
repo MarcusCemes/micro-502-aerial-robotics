@@ -1,12 +1,11 @@
 from dataclasses import dataclass, field
 from enum import Enum
 from math import pi
-from time import time
 
 from common import Context
 from log import Logger
 from navigation import Navigation
-from utils import Vec2, clip, normalise_angle
+from utils import Timer, Vec2, clip, normalise_angle
 
 TWO_PI = 2 * pi
 HALF_PI = 0.5 * pi
@@ -31,7 +30,7 @@ YAW_SPEED_MULTIPLIER = 30.0
 YAW_SCAN_RATE = 1.0
 
 
-SEARCH_LOCATIONS: list[Vec2] = [Vec2(3.5, 1.5), Vec2(4.25, 2.25), Vec2(4.25, 0.75)]
+SEARCH_LOCATIONS: list[Vec2] = [Vec2(4.25, 1.5), Vec2(4.25, 2.25), Vec2(4.25, 0.75)]
 
 
 class Stage(Enum):
@@ -73,15 +72,13 @@ class FlightState:
     update_nav: bool = True
 
 
-class FlightController(Logger):
+class FlightController(Logger, Timer):
     def __init__(self, ctx: Context):
         self.ctx = ctx
         self.nav = Navigation(ctx)
-
         self.state = FlightState()
 
         self.boot_ticks = 4
-        self.reset_timer()
 
     def update(self) -> FlightCommand:
         state = self.state
@@ -106,7 +103,7 @@ class FlightController(Logger):
                 state.target_position = state.home
                 print(state.home)
 
-                self.reset_timer()
+                self.timer_reset()
                 self.transition(Stage.SpinUp)
                 return self.update()
 
@@ -134,14 +131,14 @@ class FlightController(Logger):
                 if not self.is_near_target():
                     return self.compute_flight_command()
 
+                self.timer_reset()
                 self.transition(Stage.DescendToSearch)
                 return self.compute_flight_command()
 
             case Stage.DescendToSearch:
-                if not self.is_near_target_altitude():
-                    return self.compute_flight_command()
-
-                state.target_altitude -= 0.05
+                if self.timer_elapsed(0.1):
+                    self.timer_reset()
+                    state.target_altitude -= 0.01
 
                 if state.target_altitude <= SEARCH_ALTITUDE:
                     state.target_altitude = SEARCH_ALTITUDE
@@ -279,24 +276,15 @@ class FlightController(Logger):
         sensors = self.ctx.sensors
 
         if sensors.range_front <= COLLISION_RANGE:
-            direction = sensors.range_left - sensors.range_right
-            cmd.velocity_x = 0.0
-            cmd.velocity_y = (
-                COLLISION_VELOCITY if direction >= 0.0 else -COLLISION_VELOCITY
-            )
-
-        if sensors.range_right <= COLLISION_RANGE:
-            cmd.velocity_y = COLLISION_VELOCITY
+            cmd.velocity_x = sensors.range_back - COLLISION_RANGE
 
         if sensors.range_left <= COLLISION_RANGE:
-            cmd.velocity_y = -COLLISION_VELOCITY
+            cmd.velocity_y = sensors.range_left - COLLISION_RANGE
+
+        if sensors.range_right <= COLLISION_RANGE:
+            cmd.velocity_y = COLLISION_RANGE - sensors.range_right
+
+        if sensors.range_back <= COLLISION_RANGE:
+            cmd.velocity_x = COLLISION_RANGE - sensors.range_back
 
         return cmd
-
-    # == Timer == #
-
-    def reset_timer(self) -> None:
-        self.state.timer = time()
-
-    def timer_elapsed(self, wait_time: float) -> bool:
-        return time() - self.state.timer >= wait_time

@@ -1,5 +1,5 @@
 import random
-from time import time, time_ns
+from time import time_ns
 
 import numpy as np
 
@@ -7,7 +7,7 @@ from controller import Supervisor
 from pid_control import pid_velocity_fixed_height_controller
 from my_control import MyController
 
-DEBUG_COUNT = 32
+TIME_THRESHOLD = 50e-3
 
 enable_random_environment = True
 
@@ -227,14 +227,7 @@ if __name__ == "__main__":
     my_controller = MyController()
 
     # Simulation loops
-    i = 0
     while True:
-        i += 1
-
-        if i == DEBUG_COUNT:
-            my_controller.ctx.debug_tick = True
-            i = 0
-
         # Read sensor data including []
         sensor_data = drone.read_sensors()
 
@@ -250,14 +243,10 @@ if __name__ == "__main__":
         # ---- end --- #
         end = time_ns()
 
-        # print(sensor_data['range_down'])
+        elapsed = 10e-9 * float(end - start)
 
-        if i == 0:
-            elapsed = end - start
-
-            if elapsed > 1e6:
-                print(f"[TIME] {int(1e-3 * elapsed)} us")
-            my_controller.ctx.debug_tick = False
+        if elapsed > TIME_THRESHOLD:
+            my_controller.warn("Took {:.2f} ms".format(1e3 * elapsed))
 
         # Update the drone status in simulation
         drone.step(control_commands, sensor_data)

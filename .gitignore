@@ -129,4 +129,4 @@ dmypy.json
 .pyre/
 
 # Occupancy map
-map.png
+output
