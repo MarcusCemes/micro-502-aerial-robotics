@@ -1,7 +1,6 @@
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
-
 QUEUE_SIZE = 32
 
 

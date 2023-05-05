@@ -1,5 +1,6 @@
 from typing import Generator
 
+from ..utils import raytrace
 from .types import Location, Map
 from .utils import in_bounds
 
@@ -59,38 +60,3 @@ class PathOptimiser:
         for loc in raytrace(a, b):
             if in_bounds(loc, self.size):
                 yield loc
-
-
-def raytrace(a: Location, b: Location) -> Generator[Location, None, None]:
-    """
-    An integer-only implementation of a supercover line algorithm.
-    Enumerates all grid cells that intersect with a line segment.
-    See https://playtechs.blogspot.com/2007/03/raytracing-on-grid.html
-    """
-
-    (x1, y1), (x2, y2) = a, b
-
-    dx = abs(x2 - x1)
-    dy = abs(y2 - y1)
-    n = 1 + dx + dy
-
-    x = x1
-    y = y1
-
-    x_inc = 1 if x2 > x1 else -1
-    y_inc = 1 if y2 > y1 else -1
-
-    error = dx - dy
-    dx *= 2
-    dy *= 2
-
-    for _ in range(n, 0, -1):
-        yield x, y
-
-        if error > 0:
-            x += x_inc
-            error -= dy
-
-        else:
-            y += y_inc
-            error += dx

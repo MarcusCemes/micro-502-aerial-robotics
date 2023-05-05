@@ -4,10 +4,11 @@ from queue import Queue
 from threading import Thread
 from typing import Any, Set, Tuple
 
-import config
 from aiohttp import WSMsgType, web
-from common import Context
-from log import Logger
+
+from .common import Context
+from .config import SERVER_PORT, MAP_PX_PER_M, MAP_SIZE
+from .log import Logger
 
 QUEUE_SIZE = 32
 
@@ -30,7 +31,7 @@ class WebApplication(web.Application, Logger):
         self.add_routes([web.get("/", self.hello)])
         self.add_routes([web.get("/ws", self.websocket_handler)])
 
-    async def run(self, port=config.SERVER_PORT):
+    async def run(self, port=SERVER_PORT):
         self.info("Starting server...")
 
         runner = web.AppRunner(self)
@@ -92,8 +93,8 @@ class WebApplication(web.Application, Logger):
             {
                 "type": "config",
                 "data": {
-                    "MAP_PX_PER_M": config.MAP_PX_PER_M,
-                    "MAP_SIZE": list(config.MAP_SIZE),
+                    "MAP_PX_PER_M": MAP_PX_PER_M,
+                    "MAP_SIZE": list(MAP_SIZE),
                 },
             }
         )

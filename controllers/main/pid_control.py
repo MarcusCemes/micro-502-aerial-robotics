@@ -1,6 +1,5 @@
 # Low-level PID control of velocity and attitude
 import numpy as np
-import time
 
 class pid_velocity_fixed_height_controller():
     def __init__(self):

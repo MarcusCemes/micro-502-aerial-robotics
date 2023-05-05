@@ -1,11 +1,9 @@
 from traceback import format_exc
 
-from common import Context, Sensors
-from config import SERVER_ENABLED
-from flight_ctl import FlightController
-from log import Logger
-
-DEBUG_TICKS = 16
+from sim.common import Context, Sensors
+from sim.config import EXPENSIVE_COMPUTATION_TICKS, SERVER_ENABLED
+from sim.flight_ctl import FlightController
+from sim.log import Logger
 
 
 class MyController(Logger):
@@ -35,7 +33,7 @@ class MyController(Logger):
             ctx.ticks += 1
             self.debug_counter += 1
 
-            if self.debug_counter == DEBUG_TICKS:
+            if self.debug_counter == EXPENSIVE_COMPUTATION_TICKS:
                 self.debug_counter = 0
                 ctx.debug_tick = True
 
@@ -50,7 +48,7 @@ class MyController(Logger):
             return [0.0, 0.0, 0.0, 0.0]
 
     def _enable_server(self):
-        from server import Server
+        from sim.server import Server
 
         server = Server(self.ctx)
         server.start()

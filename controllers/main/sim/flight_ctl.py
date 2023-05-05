@@ -2,14 +2,14 @@ from dataclasses import dataclass, field
 from enum import Enum
 from math import pi
 
-import numpy as np
 import cv2
+import numpy as np
 
-from common import Context
-from debug import export_array
-from log import Logger
-from navigation import Map, Navigation
-from utils import Coords, Timer, Vec2, clip, normalise_angle, rbf_kernel
+from .common import Context
+from .debug import export_array
+from .log import Logger
+from .navigation import Map, Navigation
+from .utils import Coords, Timer, Vec2, clip, normalise_angle, rbf_kernel
 
 TWO_PI = 2 * pi
 HALF_PI = 0.5 * pi
