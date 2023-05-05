@@ -152,14 +152,14 @@ def raytrace(a: Coords, b: Coords) -> Generator[Coords, None, None]:
             error += dx
 
 
-def rbf_kernel(size: int, sigma: float, unsigned=True) -> npt.NDArray:
+def rbf_kernel(size: int, sigma: float, integer=True) -> npt.NDArray:
     """Returns a 2D Gaussian kernel array."""
     gkern1d = gaussian(size, std=sigma).reshape(size, 1)
     gkern2d = np.outer(gkern1d, gkern1d)
 
-    if unsigned:
+    if integer:
         max_value = np.max(gkern2d)
         gkern2d = gkern2d / max_value * 16
-        gkern2d = gkern2d.astype(np.uint8)
+        gkern2d = gkern2d.astype(np.int32)
 
     return gkern2d

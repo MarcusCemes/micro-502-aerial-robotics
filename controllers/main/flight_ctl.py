@@ -16,7 +16,7 @@ HALF_PI = 0.5 * pi
 
 BOOT_TICKS = 8
 SPIN_UP_TICKS = 64
-PATH_COMPUTE_TICKS = 64
+PATH_COMPUTE_TICKS = 32
 
 ERROR_ALTITUDE = 0.05
 ERROR_DISTANCE = 0.05
@@ -26,18 +26,21 @@ ERROR_PAD_DETECT = 0.01
 BOOT_ALTITUDE = 0.5
 CRUISING_ALTITUDE = 0.3
 SEARCH_ALTITUDE = 0.06
+SCAN_ALTITUDE = 0.2
 PAD_HEIGHT = 0.1
 PAD_ALTITUDE = CRUISING_ALTITUDE - PAD_HEIGHT
+PAD_SIZE = 0.3
 
 COLLISION_RANGE = 0.5
 COLLISION_VELOCITY = 0.5
 LIMIT_VELOCITY = 0.3
+LIMIT_VELOCITY_SLOW = 0.2
 LIMIT_YAW = 1.0
 YAW_SPEED_MULTIPLIER = 30.0
-YAW_SCAN_RATE = 1.0
-YAW_SCAN_RATE_SLOW = 0.25
+YAW_SCAN_RATE = 1.5
+YAW_SCAN_RATE_SLOW = 0.85
 
-EXTRA_OFFSET_MAG = 0.05
+EXTRA_OFFSET_MAG = 0.1
 SEARCH_LOCATIONS: list[Vec2] = [Vec2(4.25, 1.5), Vec2(4.25, 2.25), Vec2(4.25, 0.75)]
 
 
@@ -49,16 +52,22 @@ class Stage(Enum):
     ScanHigh = 4
     DescendToScanLow = 5
     ScanLow = 6
-    FlyToDetection = 7
-    GoToPadDetection = 8
-    FindBound = 9
-    FlyToDestination = 10
-    LandDestination = 11
-    WaitAtDestination = 12
-    TakeOffAgain = 13
-    ReturnHome = 14
-    LandHome = 15
-    Stop = 16
+    RegainAltitude = 7
+    FlyToDetection = 8
+    GoToPadDetection = 9
+    FindBound = 10
+    FlyToDestination = 11
+    LandDestination = 12
+    WaitAtDestination = 13
+    TakeOffAgain = 14
+    ReturnHome = 15
+    LandHome = 16
+    Stop = 17
+
+
+class Bound(Enum):
+    X = 0
+    Y = 1
 
 
 @dataclass
@@ -78,16 +87,16 @@ class FlightState:
     high_alt_map: Map | None = None
     home: Vec2 = field(default_factory=Vec2)
     last_range_down: float = 0.0
-    obstacle_avoidance: bool = False
     over_pad: bool = False
-    pad_location: Vec2 | None = None
+    pad_location: Vec2 = field(default_factory=Vec2)
     pad_detection: Vec2 | None = None
-    pad_bounds: tuple[Vec2, Vec2] = field(default_factory=lambda: (Vec2(), Vec2()))
     path: list[Coords] | None = None
-    scan: bool = False
+    scan: bool = True
     scan_speed: float = YAW_SCAN_RATE
+    search_locations: list[Vec2] = field(default_factory=list)
     stage: Stage = Stage.Boot
     target_position: Vec2 = field(default_factory=Vec2)
+    target_velocity: float = LIMIT_VELOCITY
     target_yaw: float = 0.0
     target_altitude: float = 0.0
     timer: float = 0.0
@@ -142,16 +151,29 @@ class FlightController(Logger):
 
                 self.transition(Stage.ToSearchZone)
 
-                state.scan = True
+                self.path_timer.timer_ticks = 0
+                state.search_locations = SEARCH_LOCATIONS.copy()
                 state.target_position = SEARCH_LOCATIONS[0]
-                state.obstacle_avoidance = True
 
                 return self.update()
 
             case Stage.ToSearchZone:
+                coords = self.nav.to_coords(state.target_position)
+
+                if not self.nav.is_visitable(coords):
+                    try:
+                        self.info("Target obstructed, moving to next location")
+                        state.target_position = state.search_locations.pop(0)
+                    except IndexError:
+                        self.error("Search locations exhausted!")
+                        self.transition(Stage.ReturnHome)
+
+                    return self.update()
+
                 if not self.is_near_target():
                     return self.compute_flight_command()
 
+                self.nav.high_sensitivity = True
                 self.state.scan_speed = YAW_SCAN_RATE_SLOW
                 self.timer.reset()
                 self.transition(Stage.ScanHigh)
@@ -185,28 +207,40 @@ class FlightController(Logger):
                 if not self.timer.elapsed_ticks(64):
                     return self.compute_flight_command()
 
-                pad = self.compare_maps(state.high_alt_map, self.nav.save())
-                self.info(f"Found pad at {pad}")
+                coords = self.compare_maps(state.high_alt_map, self.nav.save())
+                ping = self.nav.to_position(coords)
 
-                state.target_position = pad
+                self.info(f"Found pad at {coords} {ping}")
+                direction = ping - self.get_position()
+                state.pad_detection = ping + direction.set_mag(EXTRA_OFFSET_MAG)
+
+                self.nav.high_sensitivity = False
                 state.target_altitude = CRUISING_ALTITUDE
+                self.transition(Stage.RegainAltitude)
+                return self.update()
+
+            case Stage.RegainAltitude:
+                if not self.is_near_target_altitude():
+                    return self.compute_flight_command()
+
+                assert state.high_alt_map is not None
+                assert state.pad_detection is not None
+
+                self.nav.restore(state.high_alt_map)
+                state.target_position = state.pad_detection
                 self.transition(Stage.FlyToDetection)
                 return self.update()
 
             case Stage.FlyToDetection:
                 if state.over_pad:
-                    position = self.get_position()
-                    direction = state.target_position - position
-
-                    state.pad_detection = position + direction.set_mag(EXTRA_OFFSET_MAG)
-                    state.target_position = state.pad_detection
-
+                    state.scan = False
                     self.transition(Stage.GoToPadDetection)
                     return self.update()
 
                 if not self.is_near_target(ERROR_PAD_DETECT):
                     return self.compute_flight_command()
 
+                self.error("Pad not found at detection point")
                 self.transition(Stage.Stop)
                 return self.update()
 
@@ -214,13 +248,11 @@ class FlightController(Logger):
                 offset = self.next_bound_offset()
 
                 if offset is None:
-                    self.info("All bounds found")
-                    (a, b) = state.pad_bounds
+                    self.info(f"Pad determined to be at {state.pad_location}")
 
-                    state.pad_location = 0.5 * (a + b)
-                    self.info(f"Pad location: {state.pad_location}")
                     state.target_position = state.pad_location
                     state.scan = False
+                    state.target_velocity = LIMIT_VELOCITY
 
                     self.transition(Stage.FlyToDestination)
                     return self.update()
@@ -230,6 +262,7 @@ class FlightController(Logger):
 
                 assert state.pad_detection is not None
                 state.target_position = state.pad_detection + offset
+                state.target_velocity = LIMIT_VELOCITY_SLOW
 
                 self.transition(Stage.FindBound)
                 return self.update()
@@ -241,10 +274,7 @@ class FlightController(Logger):
                     return self.update()
 
                 if not state.over_pad:
-                    self.info("Found bound!")
-                    self.update_bound(self.get_position())
-                    self.info("Bounds are now {}".format(state.pad_bounds))
-                    self.info(self.get_bound_direct_sides())
+                    self.update_pad_location(self.get_position())
 
                     assert state.pad_detection is not None
                     state.target_position = state.pad_detection
@@ -272,6 +302,8 @@ class FlightController(Logger):
 
             case Stage.WaitAtDestination:
                 if self.timer.elapsed_ticks(128):
+                    state.scan = True
+                    state.scan_speed = YAW_SCAN_RATE
                     state.target_altitude = CRUISING_ALTITUDE
                     self.transition(Stage.TakeOffAgain)
                     return self.update()
@@ -282,7 +314,6 @@ class FlightController(Logger):
                 if not self.is_near_target_altitude():
                     return self.compute_flight_command()
 
-                state.scan = True
                 state.target_position = state.home
                 self.transition(Stage.ReturnHome)
                 return self.update()
@@ -373,56 +404,43 @@ class FlightController(Logger):
 
     # == Search == #
 
-    def compare_maps(self, before: Map, after: Map) -> Vec2:
+    def compare_maps(self, before: Map, after: Map) -> Coords:
         before = np.clip(before, 0, 1)
         after = np.clip(after, 0, 1)
 
         export_array("before", before, cmap="gray")
         export_array("after", after, cmap="gray")
 
-        diff = np.absolute(cv2.subtract(after, before)).astype(np.uint8)
+        diff = np.absolute(cv2.subtract(after, before)).astype(np.int32)
         export_array("diff", diff, cmap="gray")
 
-        diff = cv2.filter2D(diff, -1, rbf_kernel(5, 1.0))
+        kernel = rbf_kernel(9, 2.0)
+        diff = cv2.filter2D(diff, -1, kernel)
         export_array("diff_blur", diff, cmap="gray")
 
         max = np.argmax(diff, axis=None)
         (x, y) = np.unravel_index(max, diff.shape)
-        return self.nav.to_position((int(x), int(y)))
+        return int(x), int(y)
 
-    def update_bound(self, position: Vec2):
+    def update_pad_location(self, position: Vec2):
         match self.next_bound_side():
-            case 0:
-                self.state.pad_bounds[1].x = position.x
-            case 1:
-                self.state.pad_bounds[0].y = position.y
-            case 2:
-                self.state.pad_bounds[0].x = position.x
-            case 3:
-                self.state.pad_bounds[1].y = position.y
+            case Bound.X:
+                self.state.pad_location.x = position.x + 0.5 * PAD_SIZE
+            case Bound.Y:
+                self.state.pad_location.y = position.y + 0.5 * PAD_SIZE
 
     def next_bound_offset(self) -> Vec2 | None:
         match self.next_bound_side():
-            case 0:
-                return Vec2(1.0, 0.0)
-            case 1:
-                return Vec2(0.0, 1.0)
-            case 2:
+            case Bound.X:
                 return Vec2(-1.0, 0.0)
-            case 3:
+            case Bound.Y:
                 return Vec2(0.0, -1.0)
             case None:
                 return None
 
-    def next_bound_side(self) -> int | None:
-        try:
-            return list(self.get_bound_direct_sides()).index(0.0)
-        except ValueError:
-            return None
-
-    def get_bound_direct_sides(self):
-        (a, b) = self.state.pad_bounds
-        return (b.x, a.y, a.x, b.y)
+    def next_bound_side(self) -> Bound | None:
+        lo = self.state.pad_location
+        return Bound.X if lo.x == 0.0 else Bound.Y if lo.y == 0.0 else None
 
     # == Control == #
 
@@ -445,20 +463,23 @@ class FlightController(Logger):
         next_target = self.get_next_waypoint()
 
         yaw = sensors.yaw
-        yaw_rate = YAW_SCAN_RATE
+        yaw_rate = state.scan_speed
         heading_error = normalise_angle(state.target_yaw - yaw)
 
+        altitude = state.target_altitude
         position_error = next_target - position
         velocity = position_error.rotate(-yaw)
         velocity = velocity.set_mag(self.distance_to_target())
-        velocity = velocity.limit_mag(LIMIT_VELOCITY)
-
-        altitude = state.target_altitude
+        velocity = velocity.limit_mag(state.target_velocity)
 
         if state.over_pad:
             altitude -= PAD_HEIGHT
 
-        if not self.state.scan:
+        no_scan = not self.state.scan or (
+            state.over_pad and self.get_altitude() < SCAN_ALTITUDE
+        )
+
+        if no_scan:
             yaw_rate = clip(heading_error, -LIMIT_YAW, LIMIT_YAW)
 
         cmd = FlightCommand(
@@ -468,7 +489,6 @@ class FlightController(Logger):
             yaw_rate=yaw_rate,
         )
 
-        # return self.apply_collision_avoidance(cmd)
         return cmd
 
     def get_next_waypoint(self) -> Vec2:
@@ -491,19 +511,19 @@ class FlightController(Logger):
         target = self.nav.to_position(self.state.path[0])
         return (position - target).mag() <= ERROR_WAYPOINT
 
-    def apply_collision_avoidance(self, cmd: FlightCommand) -> FlightCommand:
-        sensors = self.ctx.sensors
+    # def apply_collision_avoidance(self, cmd: FlightCommand) -> FlightCommand:
+    #     sensors = self.ctx.sensors
 
-        if sensors.range_front <= COLLISION_RANGE:
-            cmd.velocity_x = sensors.range_back - COLLISION_RANGE
+    #     if sensors.range_front <= COLLISION_RANGE:
+    #         cmd.velocity_x = sensors.range_back - COLLISION_RANGE
 
-        if sensors.range_left <= COLLISION_RANGE:
-            cmd.velocity_y = sensors.range_left - COLLISION_RANGE
+    #     if sensors.range_left <= COLLISION_RANGE:
+    #         cmd.velocity_y = sensors.range_left - COLLISION_RANGE
 
-        if sensors.range_right <= COLLISION_RANGE:
-            cmd.velocity_y = COLLISION_RANGE - sensors.range_right
+    #     if sensors.range_right <= COLLISION_RANGE:
+    #         cmd.velocity_y = COLLISION_RANGE - sensors.range_right
 
-        if sensors.range_back <= COLLISION_RANGE:
-            cmd.velocity_x = COLLISION_RANGE - sensors.range_back
+    #     if sensors.range_back <= COLLISION_RANGE:
+    #         cmd.velocity_x = COLLISION_RANGE - sensors.range_back
 
-        return cmd
+    #     return cmd

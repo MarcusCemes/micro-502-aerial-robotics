@@ -7,7 +7,7 @@ from scipy.signal.windows import gaussian
 import numpy as np
 import numpy.typing as npt
 from common import Context
-from config import DEBUG_FILES, MAP_PX_PER_M, MAP_SIZE, RANGE_THRESHOLD
+from config import MAP_PX_PER_M, MAP_SIZE, RANGE_THRESHOLD
 from debug import export_array
 from log import Logger
 from path_finding.grid_graph import GridGraph
@@ -29,11 +29,12 @@ Field = npt.NDArray[np.uint8]
 MAP_DTYPE = np.int8
 MAP_MIN = -127
 MAP_MAX = 127
+VISITABLE_THRESHOLD = 32
 
 UNIT_SENSOR_VECTORS: Matrix2x4 = np.array([[1, 0, -1, 0], [0, 1, 0, -1]], dtype=DTYPE)
 
-KERNEL_SIZE = 13
-KERNEL_SIGMA = 2.5
+KERNEL_SIZE = 15
+KERNEL_SIGMA = 3.0
 
 
 class Sensor(Enum):
@@ -55,6 +56,9 @@ class Navigation(Logger):
         self.size = size
 
         self.field_gen = FieldGenerator()
+        self.field = self.field_gen.next(self.map)
+
+        self.high_sensitivity = False
 
     def update(self):
         loc_detections = np.multiply(self.read_range_readings(), UNIT_SENSOR_VECTORS)
@@ -72,11 +76,11 @@ class Navigation(Logger):
         self.map = map
 
     def compute_path(self, start: Coords, end: Coords) -> list[Coords] | None:
-        field = self.field_gen.next(self.map)
+        self.field = self.field_gen.next(self.map)
 
-        export_array("field", field, cmap="gray")
+        export_array("field", self.field, cmap="gray")
 
-        graph = GridGraph(field)
+        graph = GridGraph(self.field)
         algo = Dijkstra(graph, False)
 
         return algo.find_path(start, end)
@@ -108,18 +112,21 @@ class Navigation(Logger):
 
     def update_pixel(self, coords: Coords, occupation: bool) -> None:
         value = self.map[coords]
-        offset = 64 if occupation else -8
+
+        if occupation:
+            offset = 255 if self.high_sensitivity else 64
+        else:
+            offset = -8
+
         self.map[coords] = clip(value + offset, MAP_MIN, MAP_MAX)
 
     def read_range_readings(self) -> Matrix1x4:
-        s = self.ctx.sensors
-
         return np.array(
             [
-                s.range_front,
-                s.range_left,
-                s.range_back,
-                s.range_right,
+                self.ctx.sensors.range_front,
+                self.ctx.sensors.range_left,
+                self.ctx.sensors.range_back,
+                self.ctx.sensors.range_right,
             ],
             dtype=DTYPE,
         )
@@ -163,6 +170,9 @@ class Navigation(Logger):
         self.map[:, 0] = MAP_MAX
         self.map[:, -1] = MAP_MAX
 
+    def is_visitable(self, coords: Coords) -> bool:
+        return self.field[coords] <= VISITABLE_THRESHOLD
+
 
 class FieldGenerator:
     def __init__(self):
@@ -172,6 +182,6 @@ class FieldGenerator:
         export_array("kernel", self.kernel, cmap="gray")
 
     def next(self, map: Map) -> Field:
-        field = np.zeros(map.shape, dtype=np.uint8)
+        field = np.zeros(map.shape, dtype=np.int32)
         field[map > 0] = 1
         return cv2.filter2D(field, -1, self.kernel)

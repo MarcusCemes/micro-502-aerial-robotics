@@ -8,10 +8,10 @@ from my_control import MyController
 
 TIME_THRESHOLD = 50e-3
 
-enable_random_environment = False
+enable_random_environment = True
 
 # Set seed to replicate the random environment
-# random.seed(3000)
+random.seed(7)
 
 
 class CrazyflieInDroneDome(Supervisor):
