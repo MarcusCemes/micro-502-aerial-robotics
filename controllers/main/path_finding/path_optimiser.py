@@ -1,8 +1,9 @@
-from math import sqrt
 from typing import Generator
 
 from .types import Location, Map
 from .utils import in_bounds
+
+OCCUPATION_THRESHOLD = 64
 
 
 class PathOptimiser:
@@ -45,7 +46,7 @@ class PathOptimiser:
         """Returns true if there is a line-of-sight between two nodes."""
 
         for x, y in self.intermediate_nodes(a, b):
-            if self.map[y, x] != 0:
+            if self.map[x, y] >= OCCUPATION_THRESHOLD:
                 return False
 
         return True
@@ -58,12 +59,6 @@ class PathOptimiser:
         for loc in raytrace(a, b):
             if in_bounds(loc, self.size):
                 yield loc
-
-    def adjacent_nodes(self, a: Location, b: Location) -> bool:
-        """Returns true if two nodes are adjacent."""
-
-        (x1, y1), (x2, y2) = a, b
-        return abs(x1 - x2) <= 1 and abs(y1 - y2) <= 1
 
 
 def raytrace(a: Location, b: Location) -> Generator[Location, None, None]:
@@ -99,14 +94,3 @@ def raytrace(a: Location, b: Location) -> Generator[Location, None, None]:
         else:
             y += y_inc
             error += dx
-
-
-def norm(a: Location, b: Location) -> float:
-    """Fast Euclidean distance between two points."""
-    (x1, y1) = a
-    (x2, y2) = b
-
-    x = float(x1 - x2)
-    y = float(y1 - y2)
-
-    return sqrt(x * x + y * y)

@@ -81,7 +81,7 @@ class Navigation(Logger):
         export_array("field", self.field, cmap="gray")
 
         graph = GridGraph(self.field)
-        algo = Dijkstra(graph, False)
+        algo = Dijkstra(graph)
 
         return algo.find_path(start, end)
 

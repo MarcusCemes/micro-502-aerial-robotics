@@ -11,7 +11,7 @@ TIME_THRESHOLD = 50e-3
 enable_random_environment = True
 
 # Set seed to replicate the random environment
-random.seed(7)
+# random.seed(0)
 
 
 class CrazyflieInDroneDome(Supervisor):
