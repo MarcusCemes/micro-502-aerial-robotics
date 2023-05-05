@@ -1,4 +1,5 @@
 import random
+import sys
 
 import numpy as np
 
@@ -10,8 +11,11 @@ TIME_THRESHOLD = 50e-3
 
 enable_random_environment = True
 
-# Set seed to replicate the random environment
-# random.seed(0)
+
+seed = random.randrange(1024)
+print(f"🎲 Using seed {seed} for random number generator")
+random.seed(seed)
+# random.seed(814)
 
 
 class CrazyflieInDroneDome(Supervisor):

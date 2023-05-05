@@ -4,7 +4,7 @@ from ..utils import raytrace
 from .types import Location, Map
 from .utils import in_bounds
 
-OCCUPATION_THRESHOLD = 64
+OCCUPATION_THRESHOLD = 2
 
 
 class PathOptimiser:

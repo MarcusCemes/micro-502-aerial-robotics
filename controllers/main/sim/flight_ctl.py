@@ -105,6 +105,7 @@ class FlightState:
 class FlightController(Logger):
     def __init__(self, ctx: Context):
         self.ctx = ctx
+
         self.nav = Navigation(ctx)
         self.state = FlightState()
 
@@ -118,7 +119,7 @@ class FlightController(Logger):
 
         self.nav.update()
 
-        self.detect_pad()
+        self.detect_pad_presence()
 
         match self.state.stage:
             case Stage.Boot:
@@ -340,12 +341,12 @@ class FlightController(Logger):
                 return FlightCommand()
 
     def transition(self, stage: Stage) -> None:
-        self.info(f"Transitioning to {Stage(stage)}")
+        self.info(f"🤖 Transitioning to {Stage(stage)}")
         self.state.stage = stage
 
     # == Sensors == #
 
-    def detect_pad(self) -> None:
+    def detect_pad_presence(self) -> None:
         state = self.state
         sensors = self.ctx.sensors
 
@@ -353,11 +354,11 @@ class FlightController(Logger):
         threshold = PAD_HEIGHT / 2
 
         if altitude_delta < -threshold:
-            self.info("Pad detected")
+            self.info("🎉 Pad detected")
             state.over_pad = True
 
         elif altitude_delta > threshold:
-            self.info("Leaving pad")
+            self.info("👋 Leaving pad")
             state.over_pad = False
 
         state.last_range_down = sensors.range_down
@@ -396,8 +397,12 @@ class FlightController(Logger):
         return delta.mag() <= (error or ERROR_DISTANCE)
 
     def get_position(self) -> Vec2:
-        sensors = self.ctx.sensors
-        return Vec2(sensors.x_global, sensors.y_global)
+        ss = self.ctx.sensors
+        return Vec2(ss.x_global, ss.y_global)
+
+    def get_velocity(self) -> Vec2:
+        ss = self.ctx.sensors
+        return Vec2(ss.v_forward, ss.v_left).rotate(ss.yaw)
 
     def distance_to_target(self) -> float:
         return (self.get_position() - self.state.target_position).mag()
@@ -408,15 +413,11 @@ class FlightController(Logger):
         before = np.clip(before, 0, 1)
         after = np.clip(after, 0, 1)
 
-        export_array("before", before, cmap="gray")
-        export_array("after", after, cmap="gray")
-
         diff = np.absolute(cv2.subtract(after, before)).astype(np.int32)
-        export_array("diff", diff, cmap="gray")
+        export_array("search_diff", diff, cmap="gray")
 
         kernel = rbf_kernel(9, 2.0)
         diff = cv2.filter2D(diff, -1, kernel)
-        export_array("diff_blur", diff, cmap="gray")
 
         max = np.argmax(diff, axis=None)
         (x, y) = np.unravel_index(max, diff.shape)
@@ -510,20 +511,3 @@ class FlightController(Logger):
         position = self.get_position()
         target = self.nav.to_position(self.state.path[0])
         return (position - target).mag() <= ERROR_WAYPOINT
-
-    # def apply_collision_avoidance(self, cmd: FlightCommand) -> FlightCommand:
-    #     sensors = self.ctx.sensors
-
-    #     if sensors.range_front <= COLLISION_RANGE:
-    #         cmd.velocity_x = sensors.range_back - COLLISION_RANGE
-
-    #     if sensors.range_left <= COLLISION_RANGE:
-    #         cmd.velocity_y = sensors.range_left - COLLISION_RANGE
-
-    #     if sensors.range_right <= COLLISION_RANGE:
-    #         cmd.velocity_y = COLLISION_RANGE - sensors.range_right
-
-    #     if sensors.range_back <= COLLISION_RANGE:
-    #         cmd.velocity_x = COLLISION_RANGE - sensors.range_back
-
-    #     return cmd

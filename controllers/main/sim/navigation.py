@@ -6,7 +6,7 @@ import numpy as np
 import numpy.typing as npt
 
 from .common import Context
-from .config import MAP_PX_PER_M, MAP_SIZE, RANGE_THRESHOLD
+from .config import MAP_PX_PER_M, MAP_SIZE, OPTIMISE_PATH, RANGE_THRESHOLD
 from .debug import export_array
 from .log import Logger
 from .path_finding.dijkstra import Dijkstra
@@ -28,12 +28,12 @@ Field = npt.NDArray[np.uint8]
 MAP_DTYPE = np.int8
 MAP_MIN = -127
 MAP_MAX = 127
-VISITABLE_THRESHOLD = 32
+OCCUPATION_THRESHOLD = 8
 
 UNIT_SENSOR_VECTORS: Matrix2x4 = np.array([[1, 0, -1, 0], [0, 1, 0, -1]], dtype=DTYPE)
 
 KERNEL_SIZE = 15
-KERNEL_SIGMA = 3.0
+KERNEL_SIGMA = 2.5
 
 
 class Sensor(Enum):
@@ -80,7 +80,7 @@ class Navigation(Logger):
         export_array("field", self.field, cmap="gray")
 
         graph = GridGraph(self.field)
-        algo = Dijkstra(graph)
+        algo = Dijkstra(graph, optimise=OPTIMISE_PATH)
 
         return algo.find_path(start, end)
 
@@ -170,7 +170,7 @@ class Navigation(Logger):
         self.map[:, -1] = MAP_MAX
 
     def is_visitable(self, coords: Coords) -> bool:
-        return self.field[coords] <= VISITABLE_THRESHOLD
+        return self.field[coords] <= OCCUPATION_THRESHOLD
 
 
 class FieldGenerator:
