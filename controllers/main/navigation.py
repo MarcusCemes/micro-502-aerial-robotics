@@ -1,17 +1,18 @@
 from enum import Enum
-from multiprocessing import Process, Queue
-from queue import Empty, Full
-from time import time
 from typing import Annotated, Literal
 
-import matplotlib.image
+import cv2
+from scipy.signal.windows import gaussian
+
 import numpy as np
 import numpy.typing as npt
 from common import Context
 from config import DEBUG_FILES, MAP_PX_PER_M, MAP_SIZE, RANGE_THRESHOLD
-from convolution import conv2d
+from debug import export_array
 from log import Logger
-from utils import Coords, Vec2, clip, raytrace
+from path_finding.grid_graph import GridGraph
+from path_finding.dijkstra import Dijkstra
+from utils import Coords, Vec2, clip, raytrace, rbf_kernel
 
 DTYPE = np.float32
 
@@ -31,8 +32,8 @@ MAP_MAX = 127
 
 UNIT_SENSOR_VECTORS: Matrix2x4 = np.array([[1, 0, -1, 0], [0, 1, 0, -1]], dtype=DTYPE)
 
-KERNEL_SIZE = 15
-KERNEL_SIGMA = 3.0
+KERNEL_SIZE = 13
+KERNEL_SIGMA = 2.5
 
 
 class Sensor(Enum):
@@ -51,25 +52,34 @@ class Navigation(Logger):
 
         self.info(f"Initialising map with size {size}")
         self.map = np.zeros(size, dtype=MAP_DTYPE)
-        self.map_dirty = False
         self.size = size
 
-        self.field_computer = PotentialComputer(self.ctx)
+        self.field_gen = FieldGenerator()
 
-    def update(self) -> None:
-        field = self.field_computer.recv()
-
-        if field is not None:
-            img = np.flip(np.flip(field, 1), 0)
-            matplotlib.image.imsave("output/field.png", img, cmap="gray")
-
+    def update(self):
         loc_detections = np.multiply(self.read_range_readings(), UNIT_SENSOR_VECTORS)
         loc_proj_detections = np.multiply(self.reduction_factors(), loc_detections)
         relative_detections = np.dot(self.yaw_rotation_matrix(), loc_proj_detections)
 
         self.paint_relative_detections(relative_detections)
 
-        self.field_computer.send(self.map)
+        export_array("map", self.map, cmap="RdYlGn_r")
+
+    def save(self) -> Map:
+        return self.map.copy()
+
+    def restore(self, map: Map) -> None:
+        self.map = map
+
+    def compute_path(self, start: Coords, end: Coords) -> list[Coords] | None:
+        field = self.field_gen.next(self.map)
+
+        export_array("field", field, cmap="gray")
+
+        graph = GridGraph(field)
+        algo = Dijkstra(graph, False)
+
+        return algo.find_path(start, end)
 
     def paint_relative_detections(self, detections: Matrix2x4) -> None:
         position = self.global_position()
@@ -142,6 +152,11 @@ class Navigation(Logger):
 
         return x >= 0 and x < px_x and y >= 0 and y < px_y
 
+    def to_position(self, coords: Coords) -> Vec2:
+        (x, y) = coords
+
+        return Vec2((x + 0.5) / MAP_PX_PER_M, (y + 0.5) / MAP_PX_PER_M)
+
     def paint_border(self):
         self.map[0, :] = MAP_MAX
         self.map[-1, :] = MAP_MAX
@@ -152,68 +167,11 @@ class Navigation(Logger):
 class FieldGenerator:
     def __init__(self):
         super().__init__()
-        self.kernel = self.generate_kernel(KERNEL_SIZE, KERNEL_SIGMA)
+
+        self.kernel = rbf_kernel(KERNEL_SIZE, KERNEL_SIGMA)
+        export_array("kernel", self.kernel, cmap="gray")
 
     def next(self, map: Map) -> Field:
-        print(f"Applying convolution to map of shape {map.shape}")
         field = np.zeros(map.shape, dtype=np.uint8)
         field[map > 0] = 1
-
-        return conv2d(field, self.kernel)
-
-    def generate_kernel(self, size: int, sigma: float) -> npt.NDArray:
-        x = np.linspace(-size, size, 2 * size + 1)
-        kernel = np.exp(-(x**2) / (2 * sigma**2))
-        kernel /= np.sum(kernel)
-        return kernel
-
-
-class PotentialComputer:
-    def __init__(self, ctx: Context):
-        super().__init__()
-        self.ctx = ctx
-
-        self.maps: Queue[Map] = Queue(1)
-        self.fields: Queue[Field] = Queue(1)
-
-        self.processing = False
-
-        process = Process(target=run, args=(self.maps, self.fields))
-        process.start()
-
-        self.generator = FieldGenerator()
-
-    def send(self, map: Map) -> None:
-        try:
-            self.maps.put_nowait(map)
-        except Full:
-            pass
-
-    def recv(self) -> Field | None:
-        try:
-            return self.fields.get_nowait()
-        except Empty:
-            return None
-
-
-def run(maps, fields) -> None:
-    kernel = generate_kernel(KERNEL_SIZE, KERNEL_SIGMA)
-
-    if DEBUG_FILES:
-        matplotlib.image.imsave("output/kernel.png", kernel)
-
-    while True:
-        map = maps.get()
-
-        field = np.zeros(map.shape, dtype=np.uint8)
-        field[map > 0] = 1
-        field = conv2d(field, kernel)
-
-        fields.put(field)
-
-
-def generate_kernel(size: int, sigma: float) -> npt.NDArray:
-    ax = np.linspace(-(size - 1) / 2.0, (size - 1) / 2.0, size)
-    gauss = np.exp(-0.5 * np.square(ax) / np.square(sigma))
-    kernel = np.outer(gauss, gauss)
-    return kernel / np.sum(kernel)
+        return cv2.filter2D(field, -1, self.kernel)

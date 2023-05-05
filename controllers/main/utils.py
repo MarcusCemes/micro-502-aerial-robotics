@@ -1,52 +1,33 @@
 from __future__ import annotations
 
+
 from dataclasses import dataclass
 from math import atan2, cos, pi, sin, sqrt
-from time import time
-from typing import Any, Callable, Generator, Set, Tuple, TypeVar, overload
+from typing import Generator, Tuple, TypeVar, overload
+
+import numpy as np
+import numpy.typing as npt
+from scipy.signal.windows import gaussian
+
+from common import Context
 
 TWO_PI = 2 * pi
 
 T = TypeVar("T")
 
-Subscriber = Callable[[Any], None]
-Unsubscriber = Callable[[], None]
-
 Coords = Tuple[int, int]
 
 
-class Observable:
-    def __init__(self):
-        self._observers: Set[Subscriber] = set()
-
-    def subscribe(self, fn: Subscriber):
-        self._observers.add(fn)
-
-    def unregister(self, fn: Subscriber):
-        self._observers.remove(fn)
-
-
-class Broadcast(Observable):
-    def __init__(self):
-        super().__init__()
-
-    def broadcast(self, payload: Any):
-        for fn in self._observers:
-            try:
-                fn(payload)
-            except:
-                pass
-
-
 class Timer:
-    def __init__(self):
-        self._timer = 0.0
+    def __init__(self, ctx: Context):
+        self.ctx = ctx
+        self.timer_ticks = ctx.ticks
 
-    def timer_reset(self) -> None:
-        self._timer = time()
+    def reset(self) -> None:
+        self.timer_ticks = self.ctx.ticks
 
-    def timer_elapsed(self, duration: float) -> bool:
-        return time() - self._timer >= duration
+    def elapsed_ticks(self, ticks: int) -> bool:
+        return self.ctx.ticks - self.timer_ticks >= ticks
 
 
 @dataclass
@@ -117,6 +98,9 @@ class Vec2:
         return Vec2(self.x * c - self.y * s, self.x * s + self.y * c)
 
     def set_mag(self, mag: float) -> Vec2:
+        if self.x == 0 and self.y == 0:
+            return self
+
         return (mag / self.mag()) * self
 
 
@@ -166,3 +150,16 @@ def raytrace(a: Coords, b: Coords) -> Generator[Coords, None, None]:
         else:
             y += y_inc
             error += dx
+
+
+def rbf_kernel(size: int, sigma: float, unsigned=True) -> npt.NDArray:
+    """Returns a 2D Gaussian kernel array."""
+    gkern1d = gaussian(size, std=sigma).reshape(size, 1)
+    gkern2d = np.outer(gkern1d, gkern1d)
+
+    if unsigned:
+        max_value = np.max(gkern2d)
+        gkern2d = gkern2d / max_value * 16
+        gkern2d = gkern2d.astype(np.uint8)
+
+    return gkern2d

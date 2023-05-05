@@ -1,5 +1,4 @@
 import random
-from time import time_ns
 
 import numpy as np
 
@@ -9,7 +8,7 @@ from my_control import MyController
 
 TIME_THRESHOLD = 50e-3
 
-enable_random_environment = True
+enable_random_environment = False
 
 # Set seed to replicate the random environment
 # random.seed(3000)
@@ -231,7 +230,6 @@ if __name__ == "__main__":
         # Read sensor data including []
         sensor_data = drone.read_sensors()
 
-        start = time_ns()
         # Control commands with [v_forward, v_left, yaw_rate, altitude]
         # ---- Select only one of the following control methods ---- #
         # control_commands = drone.action_from_keyboard()
@@ -241,12 +239,6 @@ if __name__ == "__main__":
         # control_commands = example.path_planning(sensor_data)
         # map = example.occupancy_map(sensor_data)
         # ---- end --- #
-        end = time_ns()
-
-        elapsed = 10e-9 * float(end - start)
-
-        if elapsed > TIME_THRESHOLD:
-            my_controller.warn("Took {:.2f} ms".format(1e3 * elapsed))
 
         # Update the drone status in simulation
         drone.step(control_commands, sensor_data)
