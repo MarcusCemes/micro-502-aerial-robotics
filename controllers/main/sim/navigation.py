@@ -1,4 +1,5 @@
 from enum import Enum
+from math import sqrt
 from typing import Annotated, Literal
 
 import cv2
@@ -28,7 +29,7 @@ Field = npt.NDArray[np.uint8]
 MAP_DTYPE = np.int8
 MAP_MIN = -127
 MAP_MAX = 127
-OCCUPATION_THRESHOLD = 8
+OCCUPATION_THRESHOLD = 4
 
 UNIT_SENSOR_VECTORS: Matrix2x4 = np.array([[1, 0, -1, 0], [0, 1, 0, -1]], dtype=DTYPE)
 
@@ -48,7 +49,7 @@ class Navigation(Logger):
         self.ctx = ctx
 
         MAP_X, MAP_Y = MAP_SIZE
-        size = (int(MAP_PX_PER_M * MAP_X), int(MAP_PX_PER_M * MAP_Y))
+        size = (int(float(MAP_PX_PER_M) * MAP_X), int(float(MAP_PX_PER_M) * MAP_Y))
 
         self.info(f"Initialising map with size {size}")
         self.map = np.zeros(size, dtype=MAP_DTYPE)
@@ -73,10 +74,11 @@ class Navigation(Logger):
 
     def restore(self, map: Map) -> None:
         self.map = map
+        self.field = self.field_gen.next(self.map)
+        export_array("field", self.field, cmap="gray")
 
     def compute_path(self, start: Coords, end: Coords) -> list[Coords] | None:
         self.field = self.field_gen.next(self.map)
-
         export_array("field", self.field, cmap="gray")
 
         graph = GridGraph(self.field)
@@ -170,7 +172,17 @@ class Navigation(Logger):
         self.map[:, -1] = MAP_MAX
 
     def is_visitable(self, coords: Coords) -> bool:
-        return self.field[coords] <= OCCUPATION_THRESHOLD
+        return self.field[coords] < OCCUPATION_THRESHOLD
+
+    def distance_to_obstacle(self, coords: Coords) -> float:
+        distance = float("inf")
+        (x, y) = coords
+        indices = np.transpose(np.where(self.map >= OCCUPATION_THRESHOLD))
+
+        for i, j in indices:
+            distance = min(distance, sqrt((x - i) ** 2 + (y - j) ** 2))
+
+        return distance / MAP_PX_PER_M
 
 
 class FieldGenerator:

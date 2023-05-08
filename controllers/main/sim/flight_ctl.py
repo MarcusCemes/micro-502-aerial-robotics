@@ -16,7 +16,7 @@ HALF_PI = 0.5 * pi
 
 BOOT_TICKS = 8
 SPIN_UP_TICKS = 64
-PATH_COMPUTE_TICKS = 32
+# PATH_COMPUTE_TICKS = 32
 
 ERROR_ALTITUDE = 0.05
 ERROR_DISTANCE = 0.05
@@ -33,15 +33,32 @@ PAD_SIZE = 0.3
 
 COLLISION_RANGE = 0.5
 COLLISION_VELOCITY = 0.5
+VELOCITY_MULTIPLIER = 1.0
 LIMIT_VELOCITY = 0.5
+LIMIT_VELOCITY_SLOWER = 0.4
 LIMIT_VELOCITY_SLOW = 0.2
 LIMIT_YAW = 1.0
 YAW_SPEED_MULTIPLIER = 30.0
-YAW_SCAN_RATE = 1.5
+YAW_SCAN_RATE = 2.0
 YAW_SCAN_RATE_SLOW = 0.85
 
+LANDING_VELOCITY = 0.1
+LANDING_OFFSET = 0.02
+
 EXTRA_OFFSET_MAG = 0.1
-SEARCH_LOCATIONS: list[Vec2] = [Vec2(4.25, 1.5), Vec2(4.25, 2.25), Vec2(4.25, 0.75)]
+
+SEARCH_LOCATIONS: list[Vec2] = [
+    Vec2(4.35, 1.5),
+    Vec2(4.25, 2.25),
+    Vec2(4.25, 0.75),
+    Vec2(4.75, 1.0),
+    Vec2(4.75, 2.0),
+    Vec2(4.75, 2.75),
+    Vec2(4.75, 0.75),
+    Vec2(3.5, 1.5),
+    Vec2(3.5, 1.0),
+    Vec2(3.5, 2.0),
+]
 
 
 class Stage(Enum):
@@ -143,11 +160,12 @@ class FlightController(Logger):
                     return self.compute_flight_command()
 
                 state.target_altitude = CRUISING_ALTITUDE
+                self.timer.reset()
                 self.transition(Stage.HomeTakeOff)
                 return self.update()
 
             case Stage.HomeTakeOff:
-                if not self.is_near_target_altitude():
+                if not self.timer.elapsed_ticks(16):
                     return self.compute_flight_command()
 
                 self.transition(Stage.ToSearchZone)
@@ -161,8 +179,17 @@ class FlightController(Logger):
             case Stage.ToSearchZone:
                 coords = self.nav.to_coords(state.target_position)
 
+                if state.over_pad:
+                    state.pad_detection = self.get_position()
+                    state.target_position = state.pad_detection
+                    self.transition(Stage.FlyToDetection)
+                    return self.update()
+
                 if not self.nav.is_visitable(coords):
                     try:
+                        # Go a bit slower, now that we're close to the target
+                        state.target_velocity = LIMIT_VELOCITY_SLOWER
+
                         self.info("Target obstructed, moving to next location")
                         state.target_position = state.search_locations.pop(0)
                     except IndexError:
@@ -190,15 +217,16 @@ class FlightController(Logger):
                 return self.update()
 
             case Stage.DescendToScanLow:
-                if self.timer.elapsed_ticks(8):
-                    self.timer.reset()
-                    state.target_altitude -= 0.01
-
                 if state.target_altitude <= SEARCH_ALTITUDE:
                     state.target_altitude = SEARCH_ALTITUDE
                     self.timer.reset()
                     self.transition(Stage.ScanLow)
                     return self.update()
+
+                if self.timer.elapsed_ticks(8):
+                    self.timer.reset()
+                    delta = self.get_altitude() - SEARCH_ALTITUDE
+                    state.target_altitude -= max(0.015, 0.1 * delta)
 
                 return self.compute_flight_command()
 
@@ -238,11 +266,20 @@ class FlightController(Logger):
                     self.transition(Stage.GoToPadDetection)
                     return self.update()
 
-                if not self.is_near_target(ERROR_PAD_DETECT):
+                coords = self.nav.to_coords(state.target_position)
+                if self.nav.is_visitable(coords) and not self.is_near_target(
+                    ERROR_PAD_DETECT
+                ):
                     return self.compute_flight_command()
 
-                self.error("Pad not found at detection point")
-                self.transition(Stage.Stop)
+                try:
+                    self.error("Detection not pad or obstructed")
+                    state.target_position = state.search_locations.pop(0)
+                    self.transition(Stage.ToSearchZone)
+                except IndexError:
+                    self.error("Search locations exhausted!")
+                    self.transition(Stage.ReturnHome)
+
                 return self.update()
 
             case Stage.GoToPadDetection:
@@ -262,10 +299,14 @@ class FlightController(Logger):
                     return self.compute_flight_command()
 
                 assert state.pad_detection is not None
-                state.target_position = state.pad_detection + offset
-                state.target_velocity = LIMIT_VELOCITY_SLOW
+                # state.target_position = state.pad_detection + offset
+                # state.target_velocity = LIMIT_VELOCITY_SLOW
+                # self.transition(Stage.FindBound)
 
-                self.transition(Stage.FindBound)
+                # Skip the bounds check, just try to land
+                state.target_position = state.pad_detection
+                state.scan = False
+                self.transition(Stage.FlyToDestination)
                 return self.update()
 
             case Stage.FindBound:
@@ -286,8 +327,11 @@ class FlightController(Logger):
                 return self.compute_flight_command()
 
             case Stage.FlyToDestination:
-                if self.is_near_target(ERROR_PAD_DETECT):
-                    state.target_altitude = 0.0
+                if (
+                    self.is_near_target()
+                    and self.get_velocity().mag() <= LANDING_VELOCITY
+                ):
+                    state.target_altitude = PAD_HEIGHT - LANDING_OFFSET
                     self.transition(Stage.LandDestination)
                     return self.update()
 
@@ -302,7 +346,7 @@ class FlightController(Logger):
                 return self.compute_flight_command()
 
             case Stage.WaitAtDestination:
-                if self.timer.elapsed_ticks(128):
+                if self.timer.elapsed_ticks(2):
                     state.scan = True
                     state.scan_speed = YAW_SCAN_RATE
                     state.target_altitude = CRUISING_ALTITUDE
@@ -316,6 +360,7 @@ class FlightController(Logger):
                     return self.compute_flight_command()
 
                 state.target_position = state.home
+                state.target_velocity = LIMIT_VELOCITY
                 self.transition(Stage.ReturnHome)
                 return self.update()
 
@@ -323,10 +368,9 @@ class FlightController(Logger):
                 if self.is_near_target():
                     state.scan = False
 
-                    if self.is_facing_target():
-                        state.target_altitude = 0.0
-                        self.transition(Stage.LandHome)
-                        return self.update()
+                    state.target_altitude = PAD_HEIGHT - LANDING_OFFSET
+                    self.transition(Stage.LandHome)
+                    return self.update()
 
                 return self.compute_flight_command()
 
@@ -420,6 +464,8 @@ class FlightController(Logger):
         diff = cv2.filter2D(diff, -1, kernel)
 
         max = np.argmax(diff, axis=None)
+        self.info(f"Confidence level: {max}")
+
         (x, y) = np.unravel_index(max, diff.shape)
         return int(x), int(y)
 
@@ -454,8 +500,9 @@ class FlightController(Logger):
         start = self.nav.to_coords(position)
         end = self.nav.to_coords(state.target_position)
 
-        if self.path_timer.elapsed_ticks(PATH_COMPUTE_TICKS):
-            self.path_timer.reset()
+        # if self.path_timer.elapsed_ticks(PATH_COMPUTE_TICKS):
+        if self.ctx.debug_tick:
+            # self.path_timer.reset()
             state.path = self.nav.compute_path(start, end)
 
         path_to_broadcast = [[x, y] for (x, y) in state.path or []]
@@ -470,8 +517,12 @@ class FlightController(Logger):
         altitude = state.target_altitude
         position_error = next_target - position
         velocity = position_error.rotate(-yaw)
-        velocity = velocity.set_mag(self.distance_to_target())
+        velocity = velocity.set_mag(VELOCITY_MULTIPLIER * self.distance_to_target())
         velocity = velocity.limit_mag(state.target_velocity)
+
+        # Slow down near obstacles
+        # print(f"Distance is {self.nav.distance_to_obstacle(start)}")
+        # velocity = velocity.limit_mag(max(0.2, self.nav.distance_to_obstacle(start)))
 
         if state.over_pad:
             altitude -= PAD_HEIGHT

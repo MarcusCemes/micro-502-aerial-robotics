@@ -28,7 +28,8 @@ class GridGraph(WeightedGraph):
             nx = x + dx
             ny = y + dy
 
-            if in_bounds((nx, ny), self.size) and self.map[nx, ny] < OBSTACLE_THRESHOLD:
+            # if in_bounds((nx, ny), self.size) and self.map[nx, ny] < OBSTACLE_THRESHOLD:
+            if in_bounds((nx, ny), self.size):
                 yield (nx, ny)
 
     def cost(self, a: Location, b: Location) -> float:

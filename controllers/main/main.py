@@ -1,5 +1,4 @@
 import random
-import sys
 
 import numpy as np
 
@@ -15,7 +14,7 @@ enable_random_environment = True
 seed = random.randrange(1024)
 print(f"🎲 Using seed {seed} for random number generator")
 random.seed(seed)
-# random.seed(814)
+# random.seed(557)
 
 
 class CrazyflieInDroneDome(Supervisor):

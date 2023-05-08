@@ -2,7 +2,7 @@ from traceback import format_exc
 
 from sim.common import Context, Sensors
 from sim.config import EXPENSIVE_COMPUTATION_TICKS, SERVER_ENABLED
-from sim.flight_ctl import FlightController
+from sim.flight_ctl import FlightController, FlightCommand
 from sim.log import Logger
 
 
@@ -22,7 +22,7 @@ class MyController(Logger):
 
     def step_control(self, data: dict[str, float]) -> list[float]:
         if self.dead:
-            return [0.0, 0.0, 0.0, 0.0]
+            return FlightCommand().to_list()
 
         try:
             ctx = self.ctx
@@ -45,7 +45,11 @@ class MyController(Logger):
         except Exception:
             self.error("Uncaught exception!\n{}".format(format_exc()))
             self.dead = True
-            return [0.0, 0.0, 0.0, 0.0]
+            return FlightCommand().to_list()
+
+    def destroy(self):
+        if self.server is not None:
+            self.server.stop()
 
     def _enable_server(self):
         from sim.server import Server
@@ -54,7 +58,3 @@ class MyController(Logger):
         server.start()
 
         self.server = server
-
-    def destroy(self):
-        if self.server is not None:
-            self.server.stop()
