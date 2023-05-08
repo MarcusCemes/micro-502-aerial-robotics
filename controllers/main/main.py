@@ -14,7 +14,7 @@ enable_random_environment = True
 seed = random.randrange(1024)
 print(f"🎲 Using seed {seed} for random number generator")
 random.seed(seed)
-# random.seed(557)
+# random.seed(482)
 
 
 class CrazyflieInDroneDome(Supervisor):

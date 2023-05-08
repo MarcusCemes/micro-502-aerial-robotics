@@ -34,7 +34,7 @@ PAD_SIZE = 0.3
 COLLISION_RANGE = 0.5
 COLLISION_VELOCITY = 0.5
 VELOCITY_MULTIPLIER = 1.0
-LIMIT_VELOCITY = 0.5
+LIMIT_VELOCITY = 0.4
 LIMIT_VELOCITY_SLOWER = 0.4
 LIMIT_VELOCITY_SLOW = 0.2
 LIMIT_YAW = 1.0
@@ -217,6 +217,12 @@ class FlightController(Logger):
                 return self.update()
 
             case Stage.DescendToScanLow:
+                if state.over_pad:
+                    state.pad_detection = self.get_position()
+                    state.target_position = state.pad_detection
+                    self.transition(Stage.GoToPadDetection)
+                    return self.update()
+
                 if state.target_altitude <= SEARCH_ALTITUDE:
                     state.target_altitude = SEARCH_ALTITUDE
                     self.timer.reset()
@@ -295,19 +301,24 @@ class FlightController(Logger):
                     self.transition(Stage.FlyToDestination)
                     return self.update()
 
-                if not self.is_near_target(ERROR_PAD_DETECT):
+                if (
+                    not self.is_near_target(ERROR_PAD_DETECT)
+                    or self.get_velocity().mag() > LANDING_VELOCITY
+                ):
                     return self.compute_flight_command()
 
                 assert state.pad_detection is not None
-                # state.target_position = state.pad_detection + offset
-                # state.target_velocity = LIMIT_VELOCITY_SLOW
-                # self.transition(Stage.FindBound)
+                state.target_position = state.pad_detection + offset
+                print(f"Offset is {offset}")
+                state.target_velocity = LIMIT_VELOCITY_SLOW
+                self.transition(Stage.FindBound)
+                return self.update()
 
                 # Skip the bounds check, just try to land
-                state.target_position = state.pad_detection
-                state.scan = False
-                self.transition(Stage.FlyToDestination)
-                return self.update()
+                # state.target_position = state.pad_detection
+                # state.scan = False
+                # self.transition(Stage.FlyToDestination)
+                # return self.update()
 
             case Stage.FindBound:
                 if self.is_near_target():
@@ -346,7 +357,7 @@ class FlightController(Logger):
                 return self.compute_flight_command()
 
             case Stage.WaitAtDestination:
-                if self.timer.elapsed_ticks(2):
+                if self.timer.elapsed_ticks(16):
                     state.scan = True
                     state.scan_speed = YAW_SCAN_RATE
                     state.target_altitude = CRUISING_ALTITUDE
