@@ -130,3 +130,7 @@ dmypy.json
 
 # Occupancy map
 output
+
+# Crazyflie things
+cache
+cflib
