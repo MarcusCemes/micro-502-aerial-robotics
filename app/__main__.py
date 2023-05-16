@@ -1,7 +1,11 @@
-import time
+import threading
 from asyncio import Event, run
+from os import _exit
 from signal import CTRL_C_EVENT, SIGINT, signal
-from sys import exit, stderr
+from sys import _current_frames, stderr
+from time import sleep
+from traceback import print_stack
+from typing import Final
 
 from loguru import logger
 
@@ -11,10 +15,10 @@ from .bigger_brain import BiggerBrain
 from .common import Context
 from .drone import Drone
 
-EXIT_SIGNALS = [SIGINT, CTRL_C_EVENT]
+EXIT_SIGNALS: Final = [SIGINT, CTRL_C_EVENT]
+TIMEOUT_S: Final = 3
 
 
-@logger.catch
 def main():
     logger.remove()
     logger.add(
@@ -26,42 +30,52 @@ def main():
         run(init())
 
     except KeyboardInterrupt:
-        exit(0)
+        logger.info("✋ Interrupt handled")
+
+    except ConnectionError as e:
+        logger.error(f"Failed to connect to drone")
+
+    except Exception as e:
+        logger.exception(f"Application error: {e}")
 
     finally:
-        quit()
+        StopWatchdog().start()
 
 
 async def init():
     init_drivers()
 
-    logger.info("Connecting to drone...")
     data_event = Event()
-    drone = Drone(data_event)
 
-    await drone.connect()
-    await drone.reset_estimator()
+    async with Drone(data_event) as drone:
+        await drone.reset_estimator()
+        drone.configure_logging()
 
-    drone.configure_logging()
+        ctx = Context(drone, data_event)
 
-    ctx = Context(drone, data_event)
-
-    try:
         await BiggerBrain(ctx).run()
 
-    finally:
-        ctx.drone.disconnect()
 
+class StopWatchdog(threading.Thread):
+    def __init__(self, timeout=3):
+        super().__init__()
 
-def install_signal_handlers():
-    for sig in EXIT_SIGNALS:
-        signal(sig, quit)
+        self.daemon = True
+        self._timeout = timeout
 
+    def run(self):
+        sleep(self._timeout)
 
-def quit(*_) -> None:
-    time.sleep(3)
-    logger.warning("Process did not exit after 3 seconds, forcing exit...")
-    exit(1)
+        logger.warning("Process did not exit, the following threads are alive:")
+
+        frames = _current_frames()
+        for thread in threading.enumerate():
+            if thread.is_alive() and not thread.daemon:
+                logger.warning(f"  {thread.name}")
+                if thread.ident is not None:
+                    print_stack(frames[thread.ident])
+
+        _exit(1)
 
 
 if __name__ == "__main__":

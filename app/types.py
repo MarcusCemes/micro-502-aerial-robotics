@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 
-Coords = tuple[float, float]
+Coords = tuple[int, int]
 
 
 @dataclass

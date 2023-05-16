@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from math import pi
 from typing import Protocol
 
 from loguru import logger
@@ -8,8 +9,15 @@ from loguru import logger
 from cflib.positioning.motion_commander import MotionCommander
 
 from .common import Context
-from .config import ALTITUDE_ERROR, PAD_THRESHOLD, POSITION_ERROR
-from .utils.math import Vec2, clip, deg_to_rad
+from .config import (
+    ALTITUDE_ERROR,
+    ANGULAR_LIMIT_DEG,
+    PAD_THRESHOLD,
+    POSITION_ERROR,
+    VELOCITY_LIMIT,
+    VERTICAL_VELOCITY_LIMIT,
+)
+from .utils.math import Vec2, clip, deg_to_rad, normalise_angle, rad_to_deg
 
 # STATES
 #
@@ -111,16 +119,22 @@ class FlightController:
 
         position = Vec2(s.x, s.y)
 
-        v = (t.position - position).rotate(-deg_to_rad(s.yaw)).limit(0.25)
+        v = (t.position - position).rotate(-deg_to_rad(s.yaw)).limit(VELOCITY_LIMIT)
 
-        vz = clip(t.altitude - s.z, -0.1, 0.1)
+        vz = clip(t.altitude - s.z, -VERTICAL_VELOCITY_LIMIT, VERTICAL_VELOCITY_LIMIT)
+
+        va = clip(
+            normalise_angle(rad_to_deg(t.orientation - s.yaw)),
+            -ANGULAR_LIMIT_DEG,
+            ANGULAR_LIMIT_DEG,
+        )
 
         if self._fctx.ctx.debug_tick:
             logger.debug(
                 f"p: {position}, z: {s.z:.2f} t: {t.position}, v: {v}, vz: {vz:.2f}"
             )
 
-        mctl.start_linear_motion(v.x, v.y, vz, 0.0)
+        mctl.start_linear_motion(v.x, v.y, vz, va)
 
     def detect_pad(self) -> None:
         delta = self._last_altitude - self._fctx.ctx.sensors.z
@@ -143,16 +157,17 @@ class Boot(State):
 
 class Takeoff(State):
     def start(self, fctx: FlightContext) -> None:
-        fctx.trajectory.altitude = 0.3
+        fctx.trajectory.altitude = 1.0
 
     def next(self, fctx: FlightContext) -> State | None:
         if fctx.is_near_target_altitude():
-            return GoForward()
+            return GoLower()
 
 
 class GoForward(State):
     def start(self, fctx: FlightContext) -> None:
         fctx.trajectory.position.x = 1.0
+        fctx.trajectory.orientation = pi
 
     def next(self, fctx: FlightContext) -> State | None:
         if fctx.is_near_target():
@@ -171,6 +186,7 @@ class GoBack(State):
 class GoLower(State):
     def start(self, fctx: FlightContext):
         fctx.trajectory.altitude = 0.1
+        fctx.trajectory.orientation = 0.0
 
     def next(self, fctx: FlightContext) -> State | None:
         if fctx.is_near_target_altitude():

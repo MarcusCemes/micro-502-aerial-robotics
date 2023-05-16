@@ -1,3 +1,6 @@
+from __future__ import annotations
+
+
 import threading
 from asyncio import AbstractEventLoop, Event, get_running_loop, sleep
 from enum import Enum
@@ -44,8 +47,17 @@ class Drone:
         self._lock = threading.Lock()
         self._loop = loop
 
+    async def __aenter__(self) -> Drone:
+        await self.connect()
+        return self
+
+    async def __aexit__(self, *_) -> None:
+        self.disconnect()
+
     async def connect(self) -> None:
         assert self._connection_future is None
+
+        logger.info("📶 Connecting...")
 
         self._connection_future = self._loop.create_future()
 
@@ -74,7 +86,9 @@ class Drone:
         cfg.start()
 
     def disconnect(self) -> None:
-        self.cf.close_link()
+        if self.cf.is_connected():
+            self.cf.close_link()
+            logger.info("📶 Link closed")
 
     def get_last_sensor_reading(self) -> Sensors | None:
         with self._lock:

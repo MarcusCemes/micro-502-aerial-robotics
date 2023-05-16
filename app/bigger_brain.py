@@ -16,11 +16,11 @@ class BiggerBrain:
     async def run(self) -> None:
         mctl = MotionCommander(self._ctx.drone.cf)
 
-        mctl.take_off()
-
-        debug_counter = 0
-
         try:
+            mctl.take_off()
+
+            debug_counter = 0
+
             while True:
                 debug_counter += 1
 
@@ -41,13 +41,13 @@ class BiggerBrain:
 
                 self._ctx.debug_tick = False
 
-        except Exception as e:
-            logger.error(f"🚨 {e}")
+            mctl.land()
 
+        finally:
             if mctl._thread is not None:
-                mctl.stop()
+                mctl._thread.stop()
 
-        mctl.land()
+            self._ctx.drone.cf.commander.send_stop_setpoint()
 
     # == Private == #
 

@@ -169,5 +169,9 @@ def deg_to_rad(deg: float) -> float:
     return deg * pi / 180
 
 
+def rad_to_deg(rad: float) -> float:
+    return rad * 180 / pi
+
+
 def mm_to_m(mm: float) -> float:
     return mm / 1000
