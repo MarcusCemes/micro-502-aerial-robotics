@@ -1,5 +1,5 @@
 import threading
-from asyncio import AbstractEventLoop, get_running_loop, sleep
+from asyncio import AbstractEventLoop, Event, get_running_loop, sleep
 from enum import Enum
 
 from loguru import logger
@@ -9,6 +9,7 @@ from cflib.crazyflie.log import LogConfig
 
 from .config import CACHE_DIR, LOG_PERIOD_MS, URI
 from .types import Sensors
+from .utils.math import mm_to_m
 
 
 class LogNames(Enum):
@@ -29,13 +30,16 @@ SENSORS = [
 
 
 class Drone:
-    def __init__(self, loop: AbstractEventLoop | None = None) -> None:
+    def __init__(
+        self, data_event: Event, loop: AbstractEventLoop | None = None
+    ) -> None:
         if loop is None:
             loop = get_running_loop()
 
         self.cf = Crazyflie(rw_cache=CACHE_DIR)
 
         self._connection_future = None
+        self._data_event = data_event
         self._last_sensor_data: Sensors | None = None
         self._lock = threading.Lock()
         self._loop = loop
@@ -62,10 +66,10 @@ class Drone:
 
         cfg = self._generate_logging_config()
 
+        self.cf.log.add_config(cfg)
+
         cfg.data_received_cb.add_callback(self._on_sensor_data)
         cfg.error_cb.add_callback(self._on_sensor_error)
-
-        self.cf.log.add_config(self._generate_logging_config())
 
         cfg.start()
 
@@ -86,16 +90,18 @@ class Drone:
     # == Private == #
 
     def _generate_logging_config(self) -> LogConfig:
-        lg_stab = LogConfig(name=LogNames.Stabiliser, period_in_ms=LOG_PERIOD_MS)
+        cfg = LogConfig(name=LogNames.Stabiliser, period_in_ms=LOG_PERIOD_MS)
 
-        for var in SENSORS:
-            lg_stab.add_variable(var)
+        for name, type in SENSORS:
+            cfg.add_variable(name, type)
 
-        return lg_stab
+        return cfg
 
     # == Callbacks == #
 
     def _on_connect(self, _) -> None:
+        logger.debug("Connected")
+
         if self._connection_future is not None:
             self._loop.call_soon_threadsafe(self._connection_future.set_result, None)
 
@@ -117,19 +123,21 @@ class Drone:
         match cfg.name:
             case LogNames.Stabiliser:
                 reading = Sensors(
-                    back=data["range.back"],
-                    front=data["range.front"],
-                    left=data["range.left"],
-                    right=data["range.right"],
-                    down=data["range.zrange"],
-                    x=data["stateEstimation.x"],
-                    y=data["stateEstimation.y"],
-                    z=data["stateEstimation.z"],
+                    back=float(mm_to_m(data["range.back"])),
+                    front=float(mm_to_m(data["range.front"])),
+                    left=float(mm_to_m(data["range.left"])),
+                    right=float(mm_to_m(data["range.right"])),
+                    down=float(mm_to_m(data["range.zrange"])),
+                    x=data["stateEstimate.x"],
+                    y=data["stateEstimate.y"],
+                    z=data["stateEstimate.z"],
                     yaw=data["stabilizer.yaw"],
                 )
 
                 with self._lock:
                     self._last_sensor_data = reading
+
+                self._loop.call_soon_threadsafe(self._data_event.set)
 
     def _on_sensor_error(self, cfg: LogConfig, msg: str):
         logger.warning(f"Sensor logging error ({cfg.name}): {msg}")

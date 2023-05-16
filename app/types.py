@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 
-Coords = tuple[int, int]
+Coords = tuple[float, float]
 
 
 @dataclass
@@ -9,8 +9,8 @@ class Sensors:
     y: float = 0.0
     z: float = 0.0
     yaw: float = 0.0
-    front: int = 0
-    back: int = 0
-    left: int = 0
-    right: int = 0
-    down: int = 0
+    front: float = 0
+    back: float = 0
+    left: float = 0
+    right: float = 0
+    down: float = 0

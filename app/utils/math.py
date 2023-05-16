@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from math import atan2, cos, pi, sin, sqrt
+from math import atan2, cos, isclose, pi, sin, sqrt
 from typing import Generator, overload
 
 import numpy as np
@@ -12,11 +12,21 @@ from ..types import Coords
 
 TWO_PI = 2 * pi
 
+EQ_TOLERANCE = 1e-6
 
-@dataclass
+
 class Vec2:
     x: float = 0.0
     y: float = 0.0
+
+    def __init__(self, x: float = 0.0, y: float = 0.0) -> None:
+        self.x = float(x)
+        self.y = float(y)
+
+    def __eq__(self, rhs: Vec2) -> bool:
+        return isclose(self.x, rhs.x, abs_tol=EQ_TOLERANCE) and isclose(
+            self.y, rhs.y, abs_tol=EQ_TOLERANCE
+        )
 
     def __add__(self, rhs: Vec2) -> Vec2:
         return Vec2(self.x + rhs.x, self.y + rhs.y)
@@ -42,7 +52,13 @@ class Vec2:
         return self * lhs
 
     def __str__(self) -> str:
-        return "Vec2({:.2f}, {:.2f})".format(self.x, self.y)
+        return f"Vec2({self.x:.2f}, {self.y:.2f})"
+
+    def __repr__(self) -> str:
+        return str(self)
+
+    def abs(self) -> float:
+        return sqrt(self * self)
 
     def angle(self) -> float:
         return atan2(self.y, self.x)
@@ -64,8 +80,8 @@ class Vec2:
             clip(self.x, min_value, max_value), clip(self.y, min_value, max_value)
         )
 
-    def limit_mag(self, mag: float) -> Vec2:
-        if self.mag() >= mag:
+    def limit(self, mag: float) -> Vec2:
+        if self.abs() >= mag:
             return self.set_mag(mag)
 
         return self
@@ -73,18 +89,18 @@ class Vec2:
     def to_list(self) -> list[float]:
         return [self.x, self.y]
 
-    def mag(self) -> float:
-        return sqrt(self * self)
+    def mag2(self) -> float:
+        return self * self
 
     def rotate(self, angle: float) -> Vec2:
         s, c = sin(angle), cos(angle)
         return Vec2(self.x * c - self.y * s, self.x * s + self.y * c)
 
     def set_mag(self, mag: float) -> Vec2:
-        if self.x == 0 and self.y == 0:
+        if self.x == 0.0 and self.y == 0.0:
             return self
 
-        return (mag / self.mag()) * self
+        return (mag / self.abs()) * self
 
 
 def clip(value: float, min_value: float, max_value: float) -> float:
@@ -92,6 +108,7 @@ def clip(value: float, min_value: float, max_value: float) -> float:
 
 
 def normalise_angle(angle: float) -> float:
+    """Normalises an angle to the range [0, 2*PI]."""
     angle = ((angle % TWO_PI) + TWO_PI) % TWO_PI
 
     if angle > pi:
@@ -146,3 +163,11 @@ def rbf_kernel(size: int, sigma: float, integer=True) -> npt.NDArray:
         gkern2d = gkern2d.astype(np.int32)
 
     return gkern2d
+
+
+def deg_to_rad(deg: float) -> float:
+    return deg * pi / 180
+
+
+def mm_to_m(mm: float) -> float:
+    return mm / 1000

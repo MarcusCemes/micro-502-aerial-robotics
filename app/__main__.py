@@ -1,5 +1,5 @@
 import time
-from asyncio import run
+from asyncio import Event, run
 from signal import CTRL_C_EVENT, SIGINT, signal
 from sys import exit, stderr
 
@@ -7,8 +7,9 @@ from loguru import logger
 
 from cflib.crtp import init_drivers
 
-from .big_brain import BigBrain
-from .context import Context
+from .bigger_brain import BiggerBrain
+from .common import Context
+from .drone import Drone
 
 EXIT_SIGNALS = [SIGINT, CTRL_C_EVENT]
 
@@ -21,23 +22,32 @@ def main():
         format="<level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>",
     )
 
-    run(init())
-    quit()
+    try:
+        run(init())
+
+    except KeyboardInterrupt:
+        exit(0)
+
+    finally:
+        quit()
 
 
 async def init():
     init_drivers()
 
-    ctx = Context()
-
     logger.info("Connecting to drone...")
-    await ctx.drone.connect()
-    await ctx.drone.reset_estimator()
+    data_event = Event()
+    drone = Drone(data_event)
 
-    ctx.drone.configure_logging()
+    await drone.connect()
+    await drone.reset_estimator()
+
+    drone.configure_logging()
+
+    ctx = Context(drone, data_event)
 
     try:
-        await BigBrain(ctx).run()
+        await BiggerBrain(ctx).run()
 
     finally:
         ctx.drone.disconnect()
