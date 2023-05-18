@@ -79,7 +79,7 @@ class FlightContext:
 
 class State(Protocol):
     def start(self, fctx: FlightContext) -> None:
-        pass
+        return
 
     def next(self, fctx: FlightContext) -> State | None:
         ...
@@ -163,6 +163,8 @@ class Takeoff(State):
         if fctx.is_near_target_altitude():
             return GoLower()
 
+        return None
+
 
 class GoForward(State):
     def start(self, fctx: FlightContext) -> None:
@@ -173,6 +175,8 @@ class GoForward(State):
         if fctx.is_near_target():
             return GoBack()
 
+        return None
+
 
 class GoBack(State):
     def start(self, fctx: FlightContext) -> None:
@@ -181,6 +185,8 @@ class GoBack(State):
     def next(self, fctx: FlightContext) -> State | None:
         if fctx.is_near_target():
             return Stop()
+
+        return None
 
 
 class GoLower(State):
@@ -192,17 +198,11 @@ class GoLower(State):
         if fctx.is_near_target_altitude():
             return Stop()
 
-
-class Stop(State):
-    def next(self, *_) -> State | None:
         return None
 
 
-class Fun(State):
-    def start(self, _: Context, trajectory: Trajectory):
-        trajectory.position = Vec2(0.1, 0.0)
-
-    def next(self) -> State | None:
+class Stop(State):
+    def next(self, _) -> State | None:
         return None
 
 

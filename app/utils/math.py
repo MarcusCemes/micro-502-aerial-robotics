@@ -23,7 +23,10 @@ class Vec2:
         self.x = float(x)
         self.y = float(y)
 
-    def __eq__(self, rhs: Vec2) -> bool:
+    def __eq__(self, rhs: object) -> bool:
+        if not isinstance(rhs, Vec2):
+            return NotImplemented
+
         return isclose(self.x, rhs.x, abs_tol=EQ_TOLERANCE) and isclose(
             self.y, rhs.y, abs_tol=EQ_TOLERANCE
         )

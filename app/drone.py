@@ -1,9 +1,16 @@
 from __future__ import annotations
 
-
 import threading
-from asyncio import AbstractEventLoop, Event, get_running_loop, sleep
+from asyncio import (
+    AbstractEventLoop,
+    Event,
+    Future,
+    get_event_loop,
+    get_running_loop,
+    sleep,
+)
 from enum import Enum
+from typing import Any
 
 from loguru import logger
 
@@ -33,19 +40,14 @@ SENSORS = [
 
 
 class Drone:
-    def __init__(
-        self, data_event: Event, loop: AbstractEventLoop | None = None
-    ) -> None:
-        if loop is None:
-            loop = get_running_loop()
-
+    def __init__(self, data_event: Event) -> None:
         self.cf = Crazyflie(rw_cache=CACHE_DIR)
 
-        self._connection_future = None
+        self._connection_future: Future[Any] | None = None
         self._data_event = data_event
         self._last_sensor_data: Sensors | None = None
         self._lock = threading.Lock()
-        self._loop = loop
+        self._loop = get_running_loop()
 
     async def __aenter__(self) -> Drone:
         await self.connect()
@@ -59,7 +61,7 @@ class Drone:
 
         logger.info("📶 Connecting...")
 
-        self._connection_future = self._loop.create_future()
+        self._connection_future = get_event_loop().create_future()
 
         self.cf.connected.add_callback(self._on_connect)
         self.cf.disconnected.add_callback(self._on_disconnect)
@@ -117,7 +119,9 @@ class Drone:
         logger.debug("Connected")
 
         if self._connection_future is not None:
-            self._loop.call_soon_threadsafe(self._connection_future.set_result, None)
+            self._connection_future.get_loop().call_soon_threadsafe(
+                self._connection_future.set_result, None
+            )
 
     def _on_disconnect(self, _) -> None:
         pass
