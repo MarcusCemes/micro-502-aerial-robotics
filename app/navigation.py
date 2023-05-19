@@ -2,17 +2,18 @@ from enum import Enum
 from math import sqrt
 from typing import Annotated, Literal
 
-import cv2
+import cv2  # type: ignore
 import numpy as np
 import numpy.typing as npt
+from loguru import logger
 
 from .common import Context
 from .config import MAP_PX_PER_M, MAP_SIZE, OPTIMISE_PATH, RANGE_THRESHOLD
-from .debug import export_array
-from .log import Logger
 from .path_finding.dijkstra import Dijkstra
 from .path_finding.grid_graph import GridGraph
-from .utils import Coords, Vec2, clip, raytrace, rbf_kernel
+from .types import Coords
+from .utils.debug import export_image
+from .utils.math import Vec2, clip, raytrace, rbf_kernel
 
 DTYPE = np.float32
 
@@ -44,14 +45,14 @@ class Sensor(Enum):
     Right = 3
 
 
-class Navigation(Logger):
+class Navigation:
     def __init__(self, ctx: Context):
-        self.ctx = ctx
+        self._ctx = ctx
 
         MAP_X, MAP_Y = MAP_SIZE
         size = (int(float(MAP_PX_PER_M) * MAP_X), int(float(MAP_PX_PER_M) * MAP_Y))
 
-        self.info(f"Initialising map with size {size}")
+        logger.info(f"Initialising map with size {size}")
         self.map = np.zeros(size, dtype=MAP_DTYPE)
         self.size = size
 
@@ -67,7 +68,8 @@ class Navigation(Logger):
 
         self.paint_relative_detections(relative_detections)
 
-        export_array("map", self.map, cmap="RdYlGn_r")
+        if self._ctx.debug_tick:
+            export_image("map", self.map, cmap="RdYlGn_r")
 
     def save(self) -> Map:
         return self.map.copy()
@@ -75,11 +77,12 @@ class Navigation(Logger):
     def restore(self, map: Map) -> None:
         self.map = map
         self.field = self.field_gen.next(self.map)
-        export_array("field", self.field, cmap="gray")
 
     def compute_path(self, start: Coords, end: Coords) -> list[Coords] | None:
         self.field = self.field_gen.next(self.map)
-        export_array("field", self.field, cmap="gray")
+
+        if self._ctx.debug_tick:
+            export_image("field", self.field, cmap="gray")
 
         graph = GridGraph(self.field)
         algo = Dijkstra(graph, optimise=OPTIMISE_PATH)
@@ -98,7 +101,6 @@ class Navigation(Logger):
             self.paint_detection(position, detection, not out_of_range)
 
         self.paint_border()
-        self.ctx.outlet.broadcast({"type": "map", "data": self.map.tolist()})
 
     def paint_detection(self, origin: Vec2, detection: Vec2, detected: bool) -> None:
         coords_origin = self.to_coords(origin)
@@ -124,26 +126,26 @@ class Navigation(Logger):
     def read_range_readings(self) -> Matrix1x4:
         return np.array(
             [
-                self.ctx.sensors.range_front,
-                self.ctx.sensors.range_left,
-                self.ctx.sensors.range_back,
-                self.ctx.sensors.range_right,
+                self._ctx.sensors.front,
+                self._ctx.sensors.left,
+                self._ctx.sensors.back,
+                self._ctx.sensors.right,
             ],
             dtype=DTYPE,
         )
 
     def reduction_factors(self) -> Matrix1x4:
-        s = self.ctx.sensors
+        s = self._ctx.sensors
         return np.repeat(np.cos(np.array([s.pitch, s.roll], DTYPE)), 2)
 
     def yaw_rotation_matrix(self) -> Matrix2x2:
-        yaw = self.ctx.sensors.yaw
+        yaw = self._ctx.sensors.yaw
         c, s = np.cos(yaw), np.sin(yaw)
         return np.array([[c, -s], [s, c]], dtype=DTYPE)
 
     def global_position(self) -> Vec2:
-        s = self.ctx.sensors
-        return Vec2(s.x_global, s.y_global)
+        s = self._ctx.sensors
+        return Vec2(s.x, s.y)
 
     def to_coords(self, position: Vec2) -> Coords:
         px_x, px_y = self.size
@@ -190,7 +192,7 @@ class FieldGenerator:
         super().__init__()
 
         self.kernel = rbf_kernel(KERNEL_SIZE, KERNEL_SIGMA)
-        export_array("kernel", self.kernel, cmap="gray")
+        export_image("kernel", self.kernel, cmap="gray")
 
     def next(self, map: Map) -> Field:
         field = np.zeros(map.shape, dtype=np.int32)

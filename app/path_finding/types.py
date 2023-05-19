@@ -33,6 +33,6 @@ class Algorithm(Protocol):
         self,
         start: Location,
         end: Location,
-    ) -> list[Location]:
+    ) -> list[Location] | None:
         """Finds the shortest path between two nodes."""
         raise NotImplementedError()

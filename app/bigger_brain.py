@@ -7,6 +7,7 @@ from cflib.positioning.motion_commander import MotionCommander
 
 from .common import Context
 from .flight_ctl import FlightController
+from .navigation import Navigation
 
 
 class Command(Enum):
@@ -23,6 +24,7 @@ class BiggerBrain:
 
     async def run(self, cmds: Queue[Command]) -> None:
         mctl = MotionCommander(self._ctx.drone.cf)
+        nav = Navigation(self._ctx)
 
         try:
             logger.info("🚁 Taking off")
@@ -46,6 +48,7 @@ class BiggerBrain:
                 self._ctx.new_data.clear()
 
                 self._update_sensors()
+                nav.update()
 
                 if self._flight_ctl.update():
                     break

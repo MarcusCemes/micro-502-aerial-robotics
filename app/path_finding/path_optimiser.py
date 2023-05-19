@@ -1,6 +1,6 @@
-from typing import Generator
+from typing import Generator, cast
 
-from ..utils import raytrace
+from ..utils.math import raytrace
 from .types import Location, Map
 from .utils import in_bounds
 
@@ -16,7 +16,7 @@ class PathOptimiser:
 
     def __init__(self, map: Map):
         self.map = map
-        self.size = map.shape
+        self.size = cast(tuple[int, int], map.shape)
 
     def optimise(self, path: list[Location]) -> list[Location]:
         """

@@ -10,16 +10,16 @@ class PriorityQueue(Generic[T]):
     """A basic priority queue implementation using Python's heapq."""
 
     def __init__(self):
-        self.elements: list[tuple[float, T]] = []
+        self._elements: list[tuple[float, T]] = []
 
     def empty(self) -> bool:
-        return not self.elements
+        return not self._elements
 
     def put(self, item: T, priority: float):
-        heappush(self.elements, (priority, item))
+        heappush(self._elements, (priority, item))
 
     def get(self) -> T:
-        return heappop(self.elements)[1]
+        return heappop(self._elements)[1]
 
 
 def in_bounds(location: Location, size: tuple[int, int]) -> bool:

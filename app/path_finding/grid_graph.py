@@ -1,4 +1,4 @@
-from typing import Generator
+from typing import Generator, cast
 
 from .types import Location, Map, WeightedGraph
 from .utils import in_bounds
@@ -18,7 +18,7 @@ class GridGraph(WeightedGraph):
 
     def __init__(self, map: Map):
         self.map = map
-        self.size = map.shape
+        self.size = cast(tuple[int, int], map.shape)
         self.nodes = []
 
     def neighbors(self, location: Location, _) -> Generator[Location, None, None]:

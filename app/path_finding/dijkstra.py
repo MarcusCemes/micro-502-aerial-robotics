@@ -24,7 +24,7 @@ class Dijkstra(Algorithm):
         """Finds the shortest path between two points on the configured graph."""
 
         # Initialise the main data structures
-        frontier = PriorityQueue()
+        frontier = PriorityQueue[Location]()
 
         # Like when exploring a labyrinth, we keep track of the paths we've explored
         threads: Threads = {}
@@ -73,7 +73,7 @@ class Dijkstra(Algorithm):
         (parent, _) = threads[end]
         path = [end]
 
-        while parent != None:
+        while parent is not None:
             path.append(parent)
             (parent, _) = threads[parent]
 
