@@ -1,7 +1,7 @@
 import threading
-from asyncio import Event, run
+from asyncio import Event, Queue, get_event_loop, run, run_coroutine_threadsafe
 from os import _exit
-from signal import CTRL_C_EVENT, SIGINT, signal
+from signal import CTRL_C_EVENT, SIGINT
 from sys import _current_frames, stderr
 from time import sleep
 from traceback import print_stack
@@ -9,9 +9,10 @@ from typing import Final
 
 from loguru import logger
 
+from app.utils.getch import Getch
 from cflib.crtp import init_drivers
 
-from .bigger_brain import BiggerBrain
+from .bigger_brain import BiggerBrain, Command
 from .common import Context
 from .drone import Drone
 
@@ -47,13 +48,16 @@ async def init():
 
     data_event = Event()
 
+    cmds = Queue[Command]()
+    CommandReader(cmds).start()
+
     async with Drone(data_event) as drone:
         await drone.reset_estimator()
         drone.configure_logging()
 
         ctx = Context(drone, data_event)
 
-        await BiggerBrain(ctx).run()
+        await BiggerBrain(ctx).run(cmds)
 
 
 class StopWatchdog(threading.Thread):
@@ -76,6 +80,63 @@ class StopWatchdog(threading.Thread):
                     print_stack(frames[thread.ident])
 
         _exit(1)
+
+
+class CommandReader(threading.Thread):
+    def __init__(self, cmds: Queue[Command]):
+        super().__init__()
+
+        self.daemon = True
+        self._queue = cmds
+        self._loop = get_event_loop()
+        self._stop = False
+
+    def run(self) -> None:
+        getch = Getch()
+
+        while not self._stop:
+            match getch():
+                case b"\x03" | b"\x04" | b"s":
+                    self._send_cmd(Command.Stop)
+                    return
+
+                case b"l":
+                    self._send_cmd(Command.Land)
+                    return
+
+                case _:
+                    pass
+
+    def stop(self):
+        self._stop = True
+
+    def _send_cmd(self, cmd: Command) -> None:
+        run_coroutine_threadsafe(self._queue.put(cmd), self._loop)
+
+
+def read_char():
+    try:
+        # for Windows-based systems
+        import msvcrt
+
+        return msvcrt.getch()
+
+    except ImportError:
+        # for POSIX-based systems (with termios & tty support)
+        import sys
+        import termios
+        import tty
+
+        fd = sys.stdin.fileno()
+        oldSettings = termios.tcgetattr(fd)  # type: ignore
+
+        try:
+            tty.setcbreak(fd)  # type: ignore
+            answer = sys.stdin.read(1)
+        finally:
+            termios.tcsetattr(fd, termios.TCSADRAIN, oldSettings)  # type: ignore
+
+        return answer
 
 
 if __name__ == "__main__":

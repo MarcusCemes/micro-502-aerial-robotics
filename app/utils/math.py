@@ -1,12 +1,11 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 from math import atan2, cos, isclose, pi, sin, sqrt
 from typing import Generator, overload
 
 import numpy as np
 import numpy.typing as npt
-from scipy.signal.windows import gaussian
+from scipy.signal.windows import gaussian  # type: ignore
 
 from ..types import Coords
 
