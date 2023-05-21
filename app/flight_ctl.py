@@ -4,7 +4,8 @@ from cflib.positioning.motion_commander import MotionCommander
 
 from .common import Context
 from .config import (
-    ANGULAR_LIMIT_DEG,
+    ANGULAR_SCAN_VELOCITY,
+    ANGULAR_VELOCITY_LIMIT_DEG,
     PAD_THRESHOLD,
     VELOCITY_LIMIT,
     VERTICAL_VELOCITY_LIMIT,
@@ -48,11 +49,14 @@ class FlightController:
 
         vz = clip(t.altitude - s.z, -VERTICAL_VELOCITY_LIMIT, VERTICAL_VELOCITY_LIMIT)
 
-        va = clip(
-            normalise_angle(rad_to_deg(t.orientation - s.yaw)),
-            -ANGULAR_LIMIT_DEG,
-            ANGULAR_LIMIT_DEG,
-        )
+        va = ANGULAR_SCAN_VELOCITY
+
+        if not self._fctx.scan:
+            va = clip(
+                normalise_angle(rad_to_deg(t.orientation - s.yaw)),
+                -ANGULAR_VELOCITY_LIMIT_DEG,
+                ANGULAR_VELOCITY_LIMIT_DEG,
+            )
 
         if self._fctx.ctx.debug_tick:
             logger.debug(

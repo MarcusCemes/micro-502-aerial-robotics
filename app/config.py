@@ -23,7 +23,8 @@ PAD_THRESHOLD: Final = 0.1
 
 VELOCITY_LIMIT: Final = 0.5
 VERTICAL_VELOCITY_LIMIT: Final = 0.2
-ANGULAR_LIMIT_DEG: Final = 90
+ANGULAR_VELOCITY_LIMIT_DEG: Final = 90.0
+ANGULAR_SCAN_VELOCITY: Final = 45.0
 
 
 # == Navigation == #
@@ -31,8 +32,8 @@ ANGULAR_LIMIT_DEG: Final = 90
 MAP_SIZE: Final = (5.0, 5.0)
 OPTIMISE_PATH: Final = False
 RANGE_THRESHOLD: Final = 2.0
-MAP_PX_PER_M: Final = 10
+MAP_PX_PER_M: Final = 25
 
 # == Miscellaneous == #
 
-DEBUG_FILES: Final = False
+DEBUG_FILES: Final = True

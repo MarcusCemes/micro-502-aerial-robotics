@@ -99,6 +99,8 @@ class Drone:
     async def reset_estimator(self) -> None:
         logger.debug("Resting Kalman estimator...")
 
+        self.cf.param.set_value("kalman.initialX", "0.0")
+        self.cf.param.set_value("kalman.initialY", "0.0")
         self.cf.param.set_value("kalman.resetEstimation", "1")
         await sleep(0.1)
         self.cf.param.set_value("kalman.resetEstimation", "0")
