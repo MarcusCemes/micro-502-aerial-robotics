@@ -4,12 +4,14 @@ from dataclasses import dataclass, field
 from typing import Protocol
 import numpy as np
 from scipy.ndimage import convolve
+import math
 
 from .common import Context
 from .config import ALTITUDE_ERROR, INITIAL_POSITION, POSITION_ERROR
 from .utils.math import Vec2
 from .utils.timer import Timer
 from .navigation import Navigation
+from loguru import logger
 
 # == Simulation states == #
 
@@ -163,15 +165,24 @@ class Stop(State):
 
 
 class TargetSearch(State):
+    def __init__(self):
+        self.research_points = []
+        self.index = 0
+
     def start(self, fctx: FlightContext):
         # compute target map
-
-        pass
+        self.compute_target_map(fctx)
+        # set target
+        fctx.trajectory.position = self.research_points[self.index]
 
     def next(self, fctx: FlightContext):
+        if self.index == len(self.research_points):
+            logger.info("No target found")
+            return Stop()
         if fctx.is_near_target():
             # move to next target point
-            pass
+            self.index = self.index + 1
+            return TargetSearch()
 
     def compute_target_map(self, fctx: FlightContext):
         research_points1 = [
@@ -227,7 +238,8 @@ class TargetSearch(State):
             point = fctx.navigation.to_coords(
                 Vec2([research_points1[i][0], research_points1[i][1]])
             )
-            point = ((np.rint(point[0])).astype(int), (np.rint(point[1])).astype(int))
+            point = ((np.rint(point[0])).astype(int),
+                     (np.rint(point[1])).astype(int))
             if occupancy_grid[point]:
                 del research_points1[i]
             else:
@@ -235,8 +247,10 @@ class TargetSearch(State):
 
         i = 0
         while i < len(research_points2):
-            point = m_to_id * np.array([research_points2[i][0], research_points2[i][1]])
-            point = ((np.rint(point[0])).astype(int), (np.rint(point[1])).astype(int))
+            point = fctx.navigation.to_coords(
+                Vec2([research_points2[i][0], research_points2[i][1]]))
+            point = ((np.rint(point[0])).astype(int),
+                     (np.rint(point[1])).astype(int))
             if occupancy_grid[point]:
                 del research_points2[i]
             else:
@@ -244,12 +258,70 @@ class TargetSearch(State):
 
         i = 0
         while i < len(research_points3):
-            point = m_to_id * np.array([research_points3[i][0], research_points3[i][1]])
-            point = ((np.rint(point[0])).astype(int), (np.rint(point[1])).astype(int))
+            point = fctx.navigation.to_coords(
+                Vec2([research_points3[i][0], research_points3[i][1]]))
+            point = ((np.rint(point[0])).astype(int),
+                     (np.rint(point[1])).astype(int))
             if occupancy_grid[point]:
                 del research_points3[i]
             else:
                 i += 1
+
+            # Move at the end isolated points
+        max_dist = 1.50
+        min_neighbourg = 3
+
+        nb = 0
+        id = 0
+        while nb < len(research_points2):
+            given_point = research_points2[id]
+            count = 0
+            for point in research_points2:
+                if self.distance(point, given_point) < max_dist:
+                    count += 1
+
+            if count <= min_neighbourg:
+                research_points2.remove(given_point)
+                research_points2.append(given_point)
+            else:
+                id += 1
+            nb += 1
+
+        nb = 0
+        id = 0
+        while nb < len(research_points3):
+            given_point = research_points3[id]
+            count = 0
+            for point in research_points3:
+                if self.distance(point, given_point) < max_dist:
+                    count += 1
+
+            if count <= min_neighbourg:
+                print(given_point, ' put at the end')
+                research_points3.remove(given_point)
+                research_points3.append(given_point)
+            else:
+                id += 1
+            nb += 1
+
+        research_points = research_points1.copy()
+        research_points += research_points2
+        research_points += research_points3
+
+        self.research_points = research_points
+
+    def distance(self, p1, p2):
+        """
+        Return the distance between two points 
+
+        Args:
+            p1 (Tuple): First point
+            p2 (Tuple): Second point
+
+        Returns:
+            (Double): Distance between the points 
+        """
+        return math.sqrt((p1[0]-p2[0])**2 + (p1[1]-p2[1])**2)
 
 
 class ReturnHome(State):
