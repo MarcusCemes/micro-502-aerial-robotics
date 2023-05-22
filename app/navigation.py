@@ -6,6 +6,7 @@ import cv2  # type: ignore
 import numpy as np
 import numpy.typing as npt
 from loguru import logger
+from matplotlib import pyplot as plt  # type: ignore
 
 from .common import Context
 from .config import MAP_PX_PER_M, MAP_SIZE, OPTIMISE_PATH, RANGE_THRESHOLD
@@ -87,7 +88,12 @@ class Navigation:
         graph = GridGraph(self.field)
         algo = Dijkstra(graph, optimise=OPTIMISE_PATH)
 
-        return algo.find_path(start, end)
+        path = algo.find_path(start, end)
+
+        if self._ctx.debug_tick and path is not None:
+            self.plot_and_save_path(path)
+
+        return path
 
     def paint_relative_detections(self, detections: Matrix2x4) -> None:
         position = self.global_position()
@@ -126,10 +132,10 @@ class Navigation:
     def read_range_readings(self) -> Matrix1x4:
         return np.array(
             [
-                self._ctx.sensors.front,
-                self._ctx.sensors.left,
-                self._ctx.sensors.back,
-                self._ctx.sensors.right,
+                clip(self._ctx.sensors.front, 0.0, RANGE_THRESHOLD + 0.01),
+                clip(self._ctx.sensors.left, 0.0, RANGE_THRESHOLD + 0.01),
+                clip(self._ctx.sensors.back, 0.0, RANGE_THRESHOLD + 0.01),
+                clip(self._ctx.sensors.right, 0.0, RANGE_THRESHOLD + 0.01),
             ],
             dtype=DTYPE,
         )
@@ -185,6 +191,21 @@ class Navigation:
             distance = min(distance, sqrt((x - i) ** 2 + (y - j) ** 2))
 
         return distance / MAP_PX_PER_M
+
+    def plot_and_save_path(self, path: list[Coords]) -> None:
+        plt.xlim(0, self.map.shape[0])
+        plt.ylim(0, self.map.shape[1])
+
+        for i, j in path:
+            plt.plot(
+                i,
+                j,
+                marker="o",
+                markersize=2,
+                markeredgecolor="red",
+            )
+
+        plt.savefig("output/path.png")
 
 
 class FieldGenerator:

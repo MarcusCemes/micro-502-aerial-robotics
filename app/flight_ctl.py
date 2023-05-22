@@ -4,23 +4,28 @@ from cflib.positioning.motion_commander import MotionCommander
 
 from .common import Context
 from .config import (
-    ANGULAR_SCAN_VELOCITY,
+    ANGULAR_SCAN_VELOCITY_DEG,
     ANGULAR_VELOCITY_LIMIT_DEG,
     PAD_THRESHOLD,
     VELOCITY_LIMIT,
     VERTICAL_VELOCITY_LIMIT,
 )
 from .flight_states import Boot, FlightContext, State, Stop
+from .navigation import Navigation
 from .utils.math import Vec2, clip, deg_to_rad, normalise_angle, rad_to_deg
 
 
 class FlightController:
     _state: State
 
-    def __init__(self, ctx: Context) -> None:
+    def __init__(self, ctx: Context, navigation: Navigation) -> None:
         self._state = Boot()
 
-        self._fctx = FlightContext(ctx)
+        self._fctx = FlightContext(
+            ctx,
+            navigation,
+        )
+
         self._last_altitude = 0.0
 
     def update(self) -> bool:
@@ -40,20 +45,32 @@ class FlightController:
         return type(self._state) == Stop
 
     def apply_flight_command(self, mctl: MotionCommander) -> None:
+        nav = self._fctx.navigation
+
         s = self._fctx.ctx.sensors
         t = self._fctx.trajectory
 
         position = Vec2(s.x, s.y)
 
-        v = (t.position - position).rotate(-deg_to_rad(s.yaw)).limit(VELOCITY_LIMIT)
+        pos_coords = nav.to_coords(position)
+        target_coords = nav.to_coords(t.position)
+
+        path = nav.compute_path(pos_coords, target_coords)
+
+        next_waypoint = target_coords
+        if path is not None and len(path) >= 1:
+            next_waypoint = path[0]
+
+        next_location = nav.to_position(next_waypoint).set_mag(0.5)
+        v = (next_location - position).rotate(-deg_to_rad(s.yaw)).limit(VELOCITY_LIMIT)
 
         vz = clip(t.altitude - s.z, -VERTICAL_VELOCITY_LIMIT, VERTICAL_VELOCITY_LIMIT)
 
-        va = ANGULAR_SCAN_VELOCITY
+        va = ANGULAR_SCAN_VELOCITY_DEG
 
         if not self._fctx.scan:
             va = clip(
-                normalise_angle(rad_to_deg(t.orientation - s.yaw)),
+                rad_to_deg(normalise_angle(t.orientation - s.yaw)),
                 -ANGULAR_VELOCITY_LIMIT_DEG,
                 ANGULAR_VELOCITY_LIMIT_DEG,
             )
@@ -74,5 +91,7 @@ class FlightController:
         elif delta < PAD_THRESHOLD:
             logger.info(f"🎯 Lost pad!")
             self._fctx.over_pad = False
+
+        self._last_altitude = self._fctx.ctx.sensors.z
 
         self._last_altitude = self._fctx.ctx.sensors.z

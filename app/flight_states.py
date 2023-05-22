@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from math import pi
 from typing import Protocol
+import numpy as np
+from scipy.ndimage import convolve
 
 from .common import Context
-from .config import ALTITUDE_ERROR, POSITION_ERROR
+from .config import ALTITUDE_ERROR, INITIAL_POSITION, POSITION_ERROR
 from .utils.math import Vec2
+from .utils.timer import Timer
+from .navigation import Navigation
 
 # == Simulation states == #
 
@@ -43,6 +46,7 @@ class Trajectory:
 @dataclass
 class FlightContext:
     ctx: Context
+    navigation: Navigation
 
     trajectory: Trajectory = field(default_factory=Trajectory)
 
@@ -83,41 +87,62 @@ class State(Protocol):
 class Boot(State):
     def next(self, fctx: FlightContext) -> State | None:
         fctx.home_pad = fctx.get_position()
+
+        (x, y) = INITIAL_POSITION
+        fctx.trajectory.position = Vec2(x, y)
+
         return Takeoff()
 
 
 class Takeoff(State):
     def start(self, fctx: FlightContext) -> None:
-        fctx.trajectory.altitude = 1.0
+        fctx.trajectory.altitude = 0.5
 
     def next(self, fctx: FlightContext) -> State | None:
         if fctx.is_near_target_altitude():
-            return GoLower()
+            return GoForward()
+
+        return None
+
+
+class Scan(State):
+    def __init__(self):
+        self._timer = Timer()
+
+    def start(self, fctx: FlightContext) -> None:
+        fctx.scan = True
+        self._timer.reset()
+
+    def next(self, fctx: FlightContext) -> State | None:
+        if self._timer.is_elapsed(10.0):
+            fctx.scan = False
+            return Stop()
 
         return None
 
 
 class GoForward(State):
     def start(self, fctx: FlightContext) -> None:
-        fctx.trajectory.position.x = 1.0
-        fctx.trajectory.orientation = pi
+        fctx.trajectory.position.x = 2.0
+        # fctx.trajectory.orientation = pi
+        fctx.scan = True
 
     def next(self, fctx: FlightContext) -> State | None:
         if fctx.is_near_target():
-            return GoBack()
+            return ReturnHome()
 
         return None
 
 
-class GoBack(State):
-    def start(self, fctx: FlightContext) -> None:
-        fctx.trajectory.position = Vec2()
+# class GoBack(State):
+#     def start(self, fctx: FlightContext) -> None:
+#         fctx.trajectory.position = Vec2()
 
-    def next(self, fctx: FlightContext) -> State | None:
-        if fctx.is_near_target():
-            return Stop()
+#     def next(self, fctx: FlightContext) -> State | None:
+#         if fctx.is_near_target():
+#             return Stop()
 
-        return None
+#         return None
 
 
 class GoLower(State):
@@ -137,10 +162,105 @@ class Stop(State):
         return None
 
 
-# class ReturnHome(State):
-#     def __init__(self, trajectory: Trajectory):
-#         # kalman is reset when the motors stop at the top pad
-#         self.position_home_pad = Vec2(0.0, 0.0)
-#         self.position_goal_pad = trajectory.position
+class TargetSearch(State):
+    def start(self, fctx: FlightContext):
+        # compute target map
 
-#     def compute_home_pos(self):
+        pass
+
+    def next(self, fctx: FlightContext):
+        if fctx.is_near_target():
+            # move to next target point
+            pass
+
+    def compute_target_map(self, fctx: FlightContext):
+        research_points1 = [
+            (4.7, 2.7),
+            (4.7, 1.9),
+            (4.7, 1.1),
+            (4.7, 0.3),
+            (4.2, 0.3),
+            (4.2, 1.1),
+            (4.2, 1.9),
+            (4.2, 2.7),
+            (3.8, 2.7),
+            (3.8, 1.9),
+            (3.8, 1.1),
+            (3.8, 0.3),
+        ]
+
+        research_points2 = [
+            (4.0, 0.8),
+            (4.0, 1.5),
+            (4.0, 2.3),
+            (4.4, 2.3),
+            (4.4, 1.5),
+            (4.4, 0.8),
+        ]
+
+        research_points3 = [
+            (4.7, 0.8),
+            (4.7, 1.5),
+            (4.7, 2.3),
+            (4.4, 2.7),
+            (4.4, 1.9),
+            (4.4, 1.1),
+            (4.4, 0.3),
+            (4.2, 0.8),
+            (4.2, 1.5),
+            (4.2, 2.3),
+            (4.0, 2.7),
+            (4.0, 1.9),
+            (4.0, 1.1),
+            (4.0, 0.3),
+            (3.8, 0.8),
+            (3.8, 1.5),
+            (3.8, 2.3),
+        ]
+
+        occupancy_grid = fctx.navigation.map.copy()
+        kernel = np.ones((9, 9), np.uint8)
+        occupancy_grid = convolve(occupancy_grid, kernel)
+
+        i = 0
+        while i < len(research_points1):
+            point = fctx.navigation.to_coords(
+                Vec2([research_points1[i][0], research_points1[i][1]])
+            )
+            point = ((np.rint(point[0])).astype(int), (np.rint(point[1])).astype(int))
+            if occupancy_grid[point]:
+                del research_points1[i]
+            else:
+                i += 1
+
+        i = 0
+        while i < len(research_points2):
+            point = m_to_id * np.array([research_points2[i][0], research_points2[i][1]])
+            point = ((np.rint(point[0])).astype(int), (np.rint(point[1])).astype(int))
+            if occupancy_grid[point]:
+                del research_points2[i]
+            else:
+                i += 1
+
+        i = 0
+        while i < len(research_points3):
+            point = m_to_id * np.array([research_points3[i][0], research_points3[i][1]])
+            point = ((np.rint(point[0])).astype(int), (np.rint(point[1])).astype(int))
+            if occupancy_grid[point]:
+                del research_points3[i]
+            else:
+                i += 1
+
+
+class ReturnHome(State):
+    def start(self, fctx: FlightContext):
+        assert fctx.home_pad is not None
+
+        # kalman is reset when the motors stop at the top pad
+        fctx.trajectory.position = fctx.home_pad
+
+    def next(self, fctx: FlightContext) -> State | None:
+        if fctx.is_near_target():
+            return GoLower()
+
+        return None

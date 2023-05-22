@@ -19,12 +19,13 @@ class BiggerBrain:
     def __init__(self, ctx: Context) -> None:
         self._ctx = ctx
 
-        self._flight_ctl = FlightController(ctx)
+        self._nav = Navigation(self._ctx)
+
+        self._flight_ctl = FlightController(ctx, self._nav)
         self._last_execution = 0.0
 
     async def run(self, cmds: Queue[Command]) -> None:
         mctl = MotionCommander(self._ctx.drone.cf)
-        nav = Navigation(self._ctx)
 
         try:
             logger.info("🚁 Taking off")
@@ -41,6 +42,11 @@ class BiggerBrain:
 
                 maybe_cmd = await self._wait_for_event(cmds)
 
+                # s = self._ctx.sensors
+                # print(
+                #     f"f {s.front:.2f} l {s.left:.2f} b {s.back:.2f} r {s.right:.2f} y {s.yaw:.2f}"
+                # )
+
                 if maybe_cmd is not None:
                     self._handle_cmd(maybe_cmd, mctl)
                     return
@@ -48,7 +54,7 @@ class BiggerBrain:
                 self._ctx.new_data.clear()
 
                 self._update_sensors()
-                nav.update()
+                self._nav.update()
 
                 if self._flight_ctl.update():
                     break
