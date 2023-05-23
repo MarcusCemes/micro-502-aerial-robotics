@@ -347,25 +347,51 @@ class TargetSearch(State):
 class TargetCentering(State):
     def __init__(self, fctx: FlightContext):
         self.target_pad = Vec2 | None
-        self.x_pos : bool = False
-        self.y_pos : bool = False
+        self.platform_x_found : bool = False
+        self.platform_y_found : bool = False
+        self.last_over_pad : bool = True
 
-        self.axe_X = 0
-        self.axe_Y = 1
-
-
+        self.axe_up : int = 0
+        self.axe_down : int = 1
+        self.research_dir : int = 0
+        
+        self.axe_X : int = 0
+        self.axe_Y : int = 1        
+        self.research_axe : int = self.axe_X
+        
+        self.reseatch_counter : int = 0        
+        self.change_axe : int = 0
+        self.pad_width : float = 0.15
+        self.lateral_movement = 0.22   
 
     def start(self, fctx: FlightContext):
-        pass 
+        self.init_pos = fctx.navigation.global_position()
         
     def next(self, fctx: FlightContext) -> State | None:
     
+        self.centering(fctx)
         
-        if self.x_pos or self.y_pos:
+        if self.platform_x_found and self.platform_y_found:
             fctx.target_pad = self.target_pad
             return GoLower()
         
-    def centering(self, data):   
+    def set_target(self, fctx: FlightContext):
+        
+        if self.research_axe == self.axe_X:
+            if self.research_dir == self.axe_up:
+                vect = Vec2(self.lateral_movement, 0)
+            else:
+                vect = Vec2(-self.lateral_movement, 0)
+                
+        else:
+            if self.research_dir == self.axe_up:
+                vect = Vec2(0, self.lateral_movement)
+            else:
+                vect = Vec2(0, -self.lateral_movement)
+    
+        return self.init_pos + vect
+        
+    def centering(self, fctx: FlightContext):   
             """
             Find the center of the platform.
 
@@ -376,12 +402,10 @@ class TargetCentering(State):
                 commande (List): control commande of the drone
                 (Boolean): Center found or not
             """
-            
-            lateral_movement = 0.22   
         
-            self.platform_detection(data)
-            
-                        
+            if fctx.over_pad is not self.last_over_pad:
+                self.update_platform_pos(fctx)
+                                
             if self.change_axe >= 2: 
                 if self.research_axe == self.axe_X:
                     self.research_axe = self.axe_Y
@@ -391,53 +415,42 @@ class TargetCentering(State):
                 self.change_axe = 0
                 self.reseatch_counter += 1
                 
-            stuck = False
             if self.reseatch_counter >= 5:
-                stuck = True
+                logger.info(f"🔒 Stuck !!!")
+                # stuck = True
             
             if self.platform_x_found and self.platform_y_found:
-                
-                commande = self.control(np.array([self.touch_down[0]-data['x_global'], self.touch_down[1]-data['y_global']]), data, 1)
-                if np.linalg.norm(np.array(self.touch_down)-np.array([data['x_global'], data['y_global']])) < 0.15:
-                    return commande, True, stuck
-                else:
-                    return commande, True, stuck # Balek d'être précis 
+                return
         
             elif self.research_axe == self.axe_X:
-                if self.research_state == 0:
-                    pt = self.touch_down[0] + lateral_movement
+                if self.research_state == self.axe_up:
                     
-                    if np.abs(data['x_global']-pt) < 0.05:
+                    if fctx.is_near_target():
                         self.change_axe += 1
-                        self.research_state = 1
+                        self.research_state = self.axe_down
                         
-                else:
-                    pt = self.touch_down[0] - lateral_movement
-                    
-                    if np.abs(data['x_global']-pt) < 0.05:
-                        self.research_state = 0
-                        
-                commande = self.control(np.array([pt-data['x_global'], self.touch_down[1]-data['y_global']]), data, 1)
-                return commande, False, stuck
+                else:    
+                                    
+                    if fctx.is_near_target():
+                        self.research_state = self.axe_up
+    
             
             elif self.research_axe == self.axe_Y:
-                if self.research_state == 0:
-                    pt = self.touch_down[1] + lateral_movement
+                if self.research_state == self.axe_up:
                 
-                    if np.abs(data['y_global']-pt) < 0.05:
+                    if fctx.is_near_target():
                         self.change_axe += 1
-                        self.research_state = 1
+                        self.research_state = self.axe_down
             
                 else:
-                    pt = self.touch_down[1] - lateral_movement
-                    
-                    if np.abs(data['y_global']-pt) < 0.05:
-                        self.research_state = 0
+                                    
+                    if fctx.is_near_target():
+                        self.research_state = self.axe_up
                         
-                commande = self.control(np.array([self.touch_down[0]-data['x_global'], pt-data['y_global']]), data, 1)       
-                return commande, False, stuck          
+            self.set_target(fctx)
+                            
         
-    def update_platform_pos(self, position):
+    def update_platform_pos(self, fctx: FlightContext):
             """
             Update the position of the platform from the actual position
             and the direction of the movement.
@@ -446,57 +459,71 @@ class TargetCentering(State):
                 position (List): actual position at the moment of the call
             """
             
-            angle = -math.atan2(self.v_direction[1], self.v_direction[0])
+            angle = -math.atan2(fctx.ctx.sensors.vy, fctx.ctx.sensors.vx)
             
             # Back left
             if angle >= -7*np.pi/8 and angle < -5*np.pi/8:
-                print('Back left')
-                if not self.platform_x_found and not self.platform_y_found:
-                    self.touch_down = position
+                logger.info(f"↙")
+                pass
+            
             # Left
             elif angle >= -5*np.pi/8 and angle < -3*np.pi/8:
-                print('Left')
-                self.touch_down = [position[0], position[1] + 0.15]
+                logger.info(f"⬅")
+                if fctx.over_pad:
+                    self.target_pad = [self.init_pos[0], self.init_pos[1] + self.pad_width]
+                else:
+                    self.target_pad = [self.init_pos[0], self.init_pos[1] - self.pad_width]
                 self.platform_y_found = True
                 self.change_axe = 0
                 self.research_axe = self.axe_X  
+                
             # Front left
             elif angle >= -3*np.pi/8 and angle < -np.pi/8:
-                print('Front left')
-                if not self.platform_x_found and not self.platform_y_found:
-                    self.touch_down = position
+                logger.info(f"↖")
+                pass
+            
             # Front
             elif angle >= -np.pi/8 and angle < np.pi/8:
-                print('Front')
-                self.touch_down = [position[0] + 0.15, position[1]]
-                self.platform_x_found = True
-                self.change_axe = 0
-                self.research_axe = self.axe_Y
-            # Front right
-            elif angle >= np.pi/8 and angle < 3*np.pi/8:
-                print('Front right')
-                if not self.platform_x_found and not self.platform_y_found:
-                    self.touch_down = position
-            # Right
-            elif angle >= 3*np.pi/8 and angle < 5*np.pi/8:
-                print('Right')
-                self.touch_down = [position[0], position[1] - 0.15]
-                self.platform_y_found = True
-                self.change_axe = 0
-                self.research_axe = self.axe_X
-            # Back right
-            elif angle >= 5*np.pi/8 and angle < 7*np.pi/8:
-                print('Back right')
-                if not self.platform_x_found and not self.platform_y_found:
-                    self.touch_down = position
-            # Back
-            elif angle >= 7*np.pi/8 or angle < -7*np.pi/8:
-                print('Back')
-                self.touch_down = [position[0] - 0.15, position[1]]
+                logger.info(f"⬆")
+                if fctx.over_pad:
+                    self.target_pad = [self.init_pos[0] + self.pad_width, self.init_pos[1]]
+                else:
+                    self.target_pad = [self.init_pos[0] - self.pad_width, self.init_pos[1]]
                 self.platform_x_found = True
                 self.change_axe = 0
                 self.research_axe = self.axe_Y
                 
+            # Front right
+            elif angle >= np.pi/8 and angle < 3*np.pi/8:
+                logger.info(f"↗")
+                pass
+            
+            # Right
+            elif angle >= 3*np.pi/8 and angle < 5*np.pi/8:
+                logger.info(f"➡")
+                if fctx.over_pad:
+                    self.target_pad = [self.init_pos[0], self.init_pos[1] - self.pad_width]
+                else:
+                    self.target_pad = [self.init_pos[0], self.init_pos[1] + self.pad_width]
+                self.platform_y_found = True
+                self.change_axe = 0
+                self.research_axe = self.axe_X
+                
+            # Back right
+            elif angle >= 5*np.pi/8 and angle < 7*np.pi/8:
+                logger.info(f"↘")
+                pass
+            
+            # Back
+            elif angle >= 7*np.pi/8 or angle < -7*np.pi/8:
+                logger.info(f"⬇")
+                if fctx.over_pad:
+                    self.target_pad = [self.init_pos[0] - self.pad_width, self.init_pos[1]]
+                else:
+                    self.target_pad = [self.init_pos[0] + self.pad_width, self.init_pos[1]]
+                self.platform_x_found = True
+                self.change_axe = 0
+                self.research_axe = self.axe_Y   
 
 class ReturnHome(State):
     def start(self, fctx: FlightContext):

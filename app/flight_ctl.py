@@ -106,6 +106,7 @@ class FlightController:
         slope, _ = np.polyfit(np.arange(5), self.z_hist, 1)
         if np.abs(slope) > MAX_SLOPE:
             logger.info(f"🎯 Detected pad!")
+            logger.info(f"🍆👉👌💦❤")
             self._fctx.over_pad = True
         elif np.abs(slope) < -MAX_SLOPE and self._fctx.over_pad:
             # risque de poser pbm: slope hard négative quand on arrive sur le pad, puis positive une fois que le shift sort du vecteur, à tester
