@@ -9,10 +9,13 @@ from .config import (
     PAD_THRESHOLD,
     VELOCITY_LIMIT,
     VERTICAL_VELOCITY_LIMIT,
+    MAX_SLOPE
 )
 from .flight_states import Boot, FlightContext, State, Stop
 from .navigation import Navigation
 from .utils.math import Vec2, clip, deg_to_rad, normalise_angle, rad_to_deg
+
+import numpy as np
 
 
 class FlightController:
@@ -25,7 +28,7 @@ class FlightController:
             ctx,
             navigation,
         )
-
+        self.z_hist = np.zeros(5)
         self._last_altitude = 0.0
 
     def update(self) -> bool:
@@ -51,6 +54,7 @@ class FlightController:
         t = self._fctx.trajectory
 
         position = Vec2(s.x, s.y)
+        print(f"position: {position}, yaw: {s.yaw}")
 
         pos_coords = nav.to_coords(position)
         target_coords = nav.to_coords(t.position)
@@ -83,15 +87,26 @@ class FlightController:
         mctl.start_linear_motion(v.x, v.y, vz, va)
 
     def detect_pad(self) -> None:
-        delta = self._last_altitude - self._fctx.ctx.sensors.z
-
-        if delta > PAD_THRESHOLD:
+        z_hist = self._last_altitude - self._fctx.ctx.sensors.z
+        self.delta = np.append(self.z_hist[1:], z_hist)
+        slope, _ = np.polyfit(np.arange(5), self.delta, 1)
+        if np.abs(slope) > MAX_SLOPE:
             logger.info(f"🎯 Detected pad!")
             self._fctx.over_pad = True
-        elif delta < PAD_THRESHOLD:
-            logger.info(f"🎯 Lost pad!")
+        elif np.abs(slope) < MAX_SLOPE: # changer pour mettre la condition de si on était précédément sur le pad?
+            logger.info(f"🎯 Lost pad!")   
             self._fctx.over_pad = False
 
-        self._last_altitude = self._fctx.ctx.sensors.z
+        # delta = np.abs(self._last_altitude - self._fctx.ctx.sensors.z)  
+        
+        # if delta > PAD_THRESHOLD:
+        #     logger.info(f"🎯 Detected pad!")
+        #     self._fctx.over_pad = True
+        # elif delta < PAD_THRESHOLD:
+        #     logger.info(f"🎯 Lost pad!")
+        #     self._fctx.over_pad = False
 
-        self._last_altitude = self._fctx.ctx.sensors.z
+        self._last_altitude = self._fctx.ctx.sensors.z  # on pourrait remplacer self._fctx.ctx.sensors.z par self.z_hist[-1]
+
+    def get_last_alitutde(self) -> float:
+        return self.z_hist[-1]

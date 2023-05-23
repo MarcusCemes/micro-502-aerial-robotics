@@ -181,6 +181,7 @@ class TargetSearch(State):
             return Stop()
         if fctx.is_near_target():
             # move to next target point
+            print("no Target found on this point")
             self.index = self.index + 1
             return TargetSearch()
 
@@ -324,11 +325,165 @@ class TargetSearch(State):
         return math.sqrt((p1[0]-p2[0])**2 + (p1[1]-p2[1])**2)
 
 
+class TargetCentering(State):
+    def __init__(self, fctx: FlightContext):
+        self.target_pad = Vec2 | None
+        self.x_pos : bool = False
+        self.y_pos : bool = False
+
+        self.axe_X = 0
+        self.axe_Y = 1
+
+
+
+    def start(self, fctx: FlightContext):
+        pass 
+        
+    def next(self, fctx: FlightContext) -> State | None:
+    
+        
+        if self.x_pos or self.y_pos:
+            fctx.target_pad = self.target_pad
+            return GoLower()
+        
+    def centering(self, data):   
+            """
+            Find the center of the platform.
+
+            Args:
+                sensor_data (Dictionarie): data sensors of the drone 
+                
+            Returns:
+                commande (List): control commande of the drone
+                (Boolean): Center found or not
+            """
+            
+            lateral_movement = 0.22   
+        
+            self.platform_detection(data)
+            
+                        
+            if self.change_axe >= 2: 
+                if self.research_axe == self.axe_X:
+                    self.research_axe = self.axe_Y
+                else:
+                    self.research_axe = self.axe_X
+                    
+                self.change_axe = 0
+                self.reseatch_counter += 1
+                
+            stuck = False
+            if self.reseatch_counter >= 5:
+                stuck = True
+            
+            if self.platform_x_found and self.platform_y_found:
+                
+                commande = self.control(np.array([self.touch_down[0]-data['x_global'], self.touch_down[1]-data['y_global']]), data, 1)
+                if np.linalg.norm(np.array(self.touch_down)-np.array([data['x_global'], data['y_global']])) < 0.15:
+                    return commande, True, stuck
+                else:
+                    return commande, True, stuck # Balek d'être précis 
+        
+            elif self.research_axe == self.axe_X:
+                if self.research_state == 0:
+                    pt = self.touch_down[0] + lateral_movement
+                    
+                    if np.abs(data['x_global']-pt) < 0.05:
+                        self.change_axe += 1
+                        self.research_state = 1
+                        
+                else:
+                    pt = self.touch_down[0] - lateral_movement
+                    
+                    if np.abs(data['x_global']-pt) < 0.05:
+                        self.research_state = 0
+                        
+                commande = self.control(np.array([pt-data['x_global'], self.touch_down[1]-data['y_global']]), data, 1)
+                return commande, False, stuck
+            
+            elif self.research_axe == self.axe_Y:
+                if self.research_state == 0:
+                    pt = self.touch_down[1] + lateral_movement
+                
+                    if np.abs(data['y_global']-pt) < 0.05:
+                        self.change_axe += 1
+                        self.research_state = 1
+            
+                else:
+                    pt = self.touch_down[1] - lateral_movement
+                    
+                    if np.abs(data['y_global']-pt) < 0.05:
+                        self.research_state = 0
+                        
+                commande = self.control(np.array([self.touch_down[0]-data['x_global'], pt-data['y_global']]), data, 1)       
+                return commande, False, stuck          
+        
+    def update_platform_pos(self, position):
+            """
+            Update the position of the platform from the actual position
+            and the direction of the movement.
+
+            Args:
+                position (List): actual position at the moment of the call
+            """
+            
+            angle = -math.atan2(self.v_direction[1], self.v_direction[0])
+            
+            # Back left
+            if angle >= -7*np.pi/8 and angle < -5*np.pi/8:
+                print('Back left')
+                if not self.platform_x_found and not self.platform_y_found:
+                    self.touch_down = position
+            # Left
+            elif angle >= -5*np.pi/8 and angle < -3*np.pi/8:
+                print('Left')
+                self.touch_down = [position[0], position[1] + 0.15]
+                self.platform_y_found = True
+                self.change_axe = 0
+                self.research_axe = self.axe_X  
+            # Front left
+            elif angle >= -3*np.pi/8 and angle < -np.pi/8:
+                print('Front left')
+                if not self.platform_x_found and not self.platform_y_found:
+                    self.touch_down = position
+            # Front
+            elif angle >= -np.pi/8 and angle < np.pi/8:
+                print('Front')
+                self.touch_down = [position[0] + 0.15, position[1]]
+                self.platform_x_found = True
+                self.change_axe = 0
+                self.research_axe = self.axe_Y
+            # Front right
+            elif angle >= np.pi/8 and angle < 3*np.pi/8:
+                print('Front right')
+                if not self.platform_x_found and not self.platform_y_found:
+                    self.touch_down = position
+            # Right
+            elif angle >= 3*np.pi/8 and angle < 5*np.pi/8:
+                print('Right')
+                self.touch_down = [position[0], position[1] - 0.15]
+                self.platform_y_found = True
+                self.change_axe = 0
+                self.research_axe = self.axe_X
+            # Back right
+            elif angle >= 5*np.pi/8 and angle < 7*np.pi/8:
+                print('Back right')
+                if not self.platform_x_found and not self.platform_y_found:
+                    self.touch_down = position
+            # Back
+            elif angle >= 7*np.pi/8 or angle < -7*np.pi/8:
+                print('Back')
+                self.touch_down = [position[0] - 0.15, position[1]]
+                self.platform_x_found = True
+                self.change_axe = 0
+                self.research_axe = self.axe_Y
+                
+
 class ReturnHome(State):
     def start(self, fctx: FlightContext):
         assert fctx.home_pad is not None
 
-        # kalman is reset when the motors stop at the top pad
+        # kalman is reset when the motors stop at the top pad RAJOUTER UNE FONCTION
         fctx.trajectory.position = fctx.home_pad
 
     def next(self, fctx: FlightContext) -> State | None:

@@ -145,10 +145,18 @@ class Drone:
     def _on_sensor_data(self, _, data, cfg: LogConfig) -> None:
         match cfg.name:
             case LogNames.Stabiliser:
-                reading = Sensors(
+                if self._last_sensor_data is not None:
+                    previous_x = self._last_sensor_data.x
+                    previous_y = self._last_sensor_data.y
+                else:
+                    previous_x : float = 0
+                    previous_y : float = 0
+                reading = Sensors(                    
                     x=data["stateEstimate.x"],
                     y=data["stateEstimate.y"],
                     z=data["stateEstimate.z"],
+                    vx=data["stateEstimate.x"]-previous_x,
+                    vy=data["stateEstimate.y"]-previous_y,
                     back=float(mm_to_m(data["range.back"])),
                     front=float(mm_to_m(data["range.front"])),
                     left=float(mm_to_m(data["range.left"])),
