@@ -1,5 +1,12 @@
 import threading
-from asyncio import Event, Queue, get_event_loop, run, run_coroutine_threadsafe
+from asyncio import (
+    Event,
+    Queue,
+    create_task,
+    get_event_loop,
+    run,
+    run_coroutine_threadsafe,
+)
 from os import _exit
 from signal import CTRL_C_EVENT, SIGINT
 from sys import _current_frames, stderr
@@ -8,6 +15,7 @@ from traceback import print_stack
 from typing import Final
 
 from loguru import logger
+from app.server import Server
 
 from app.utils.getch import Getch
 from cflib.crtp import init_drivers
@@ -57,7 +65,14 @@ async def init():
 
         ctx = Context(drone, data_event)
 
+        server = Server(ctx)
+        stop_server = Event()
+        server_task = create_task(server.run(stop_server))
+
         await BiggerBrain(ctx).run(cmds)
+
+        stop_server.set()
+        await server_task
 
 
 class StopWatchdog(threading.Thread):

@@ -42,6 +42,10 @@ class BiggerBrain:
 
                 maybe_cmd = await self._wait_for_event(cmds)
 
+                self._ctx.outlet.broadcast(
+                    {"type": "sensors", "data": self._ctx.sensors}
+                )
+
                 # s = self._ctx.sensors
                 # print(
                 #     f"f {s.front:.2f} l {s.left:.2f} b {s.back:.2f} r {s.right:.2f} y {s.yaw:.2f}"

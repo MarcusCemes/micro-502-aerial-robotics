@@ -68,6 +68,7 @@ class Navigation:
         relative_detections = np.dot(self.yaw_rotation_matrix(), loc_proj_detections)
 
         self.paint_relative_detections(relative_detections)
+        self._ctx.outlet.broadcast({"type": "map", "data": self.map.tolist()})
 
         if self._ctx.debug_tick:
             export_image("map", self.map, cmap="RdYlGn_r")
@@ -92,6 +93,8 @@ class Navigation:
 
         if self._ctx.debug_tick and path is not None:
             self.plot_and_save_path(path)
+
+        self._ctx.outlet.broadcast({"type": "path", "data": path})
 
         return path
 

@@ -39,3 +39,4 @@ MAP_PX_PER_M: Final = 25
 # == Miscellaneous == #
 
 DEBUG_FILES: Final = True
+SERVER_PORT = 8080
