@@ -92,6 +92,7 @@ class FlightController:
         slope, _ = np.polyfit(np.arange(5), self.delta, 1)
         if np.abs(slope) > MAX_SLOPE:
             logger.info(f"🎯 Detected pad!")
+            logger.info(f"🍆👉👌💦❤")
             self._fctx.over_pad = True
         elif np.abs(slope) < MAX_SLOPE: # changer pour mettre la condition de si on était précédément sur le pad?
             logger.info(f"🎯 Lost pad!")   
