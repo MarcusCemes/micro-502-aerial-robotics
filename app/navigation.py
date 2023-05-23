@@ -170,7 +170,8 @@ class Navigation:
 
     def to_position(self, coords: Coords) -> Vec2:
         (x, y) = coords
-
+        # print(" waypoint coords", coords)
+        # print("next no mag ", (x+.5)/MAP_PX_PER_M, (y+.5)/MAP_PX_PER_M)
         return Vec2((x + 0.5) / MAP_PX_PER_M, (y + 0.5) / MAP_PX_PER_M)
 
     def paint_border(self):

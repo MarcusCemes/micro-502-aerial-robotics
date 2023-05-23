@@ -13,7 +13,7 @@ from .utils.timer import Timer
 from .navigation import Navigation
 from loguru import logger
 
-# == Simulation states == #
+# == Simulation states == #:
 
 # Boot = 0
 # SpinUp = 1
@@ -54,10 +54,17 @@ class FlightContext:
 
     home_pad: Vec2 | None = None
     over_pad: bool = False
+    path: list[Vec2] | None = None
     scan: bool = False
     target_pad: Vec2 | None = None
 
     # == Sensors == #
+
+    def is_near_waypoint(self, error=POSITION_ERROR) -> bool:
+        if self.path is None or len(self.path) == 0:
+            return False
+        else:
+            return self.is_near_position(self.path[0], error)
 
     def is_near_target(self, error=POSITION_ERROR) -> bool:
         return self.is_near_position(self.trajectory.position, error)
@@ -102,7 +109,7 @@ class Takeoff(State):
 
     def next(self, fctx: FlightContext) -> State | None:
         if fctx.is_near_target_altitude():
-            return GoForward()
+            return TargetSearch()
 
         return None
 
@@ -173,7 +180,7 @@ class TargetSearch(State):
         # compute target map
         self.compute_target_map(fctx)
         # set target
-        fctx.trajectory.position = self.research_points[self.index]
+        fctx.trajectory.position = fctx.navigation.to_position(self.research_points[self.index])
 
     def next(self, fctx: FlightContext):
         if self.index == len(self.research_points):
@@ -230,99 +237,111 @@ class TargetSearch(State):
             (3.8, 2.3),
         ]
 
-        occupancy_grid = fctx.navigation.map.copy()
-        kernel = np.ones((9, 9), np.uint8)
-        occupancy_grid = convolve(occupancy_grid, kernel)
+        # occupancy_grid = fctx.navigation.map
 
-        i = 0
-        while i < len(research_points1):
+        # i = 0
+        # while i < len(research_points1):
+        #     point = fctx.navigation.to_coords(
+        #         Vec2(research_points1[i][0], research_points1[i][1])
+        #     )
+        #     point = ((np.rint(point[0])).astype(int),
+        #              (np.rint(point[1])).astype(int))
+        #     if occupancy_grid[point]:
+        #         del research_points1[i]
+        #     else:
+        #         i += 1
+
+        # i = 0
+        # while i < len(research_points2):
+        #     point = fctx.navigation.to_coords(
+        #         Vec2(research_points2[i][0], research_points2[i][1]))
+        #     point = ((np.rint(point[0])).astype(int),
+        #              (np.rint(point[1])).astype(int))
+        #     if occupancy_grid[point]:
+        #         del research_points2[i]
+        #     else:
+        #         i += 1
+
+        # i = 0
+        # while i < len(research_points3):
+        #     point = fctx.navigation.to_coords(
+        #         Vec2(research_points3[i][0], research_points3[i][1]))
+        #     point = ((np.rint(point[0])).astype(int),
+        #              (np.rint(point[1])).astype(int))
+        #     if occupancy_grid[point]:
+        #         del research_points3[i]
+        #     else:
+        #         i += 1
+
+        #     # Move at the end isolated points
+        # max_dist = 1.50
+        # min_neighbourg = 3
+
+        # nb = 0
+        # id = 0
+        # while nb < len(research_points2):
+        #     given_point = research_points2[id]
+        #     count = 0
+        #     for point in research_points2:
+        #         if self.distance(point, given_point) < max_dist:
+        #             count += 1
+
+        #     if count <= min_neighbourg:
+        #         research_points2.remove(given_point)
+        #         research_points2.append(given_point)
+        #     else:
+        #         id += 1
+        #     nb += 1
+
+        # nb = 0
+        # id = 0
+        
+        # while nb < len(research_points3):
+        #     given_point = research_points3[id]
+        #     count = 0
+        #     for point in research_points3:
+        #         if self.distance(point, given_point) < max_dist:
+        #             count += 1
+
+        #     if count <= min_neighbourg:
+        #         print(given_point, ' put at the end')
+        #         research_points3.remove(given_point)
+        #         research_points3.append(given_point)
+        #     else:
+        #         id += 1
+        #     nb += 1
+
+        # for i in range(len(research_points1)):
+        #     tmp_point = fctx.navigation.to_coords(
+        #         Vec2(research_points1[i][0], research_points1[i][1]))
+        #     if fctx.navigation.coords_in_range(tmp_point) and fctx.navigation.is_visitable(tmp_point):
+        #         research_points1[i] = tmp_point
+        #     else:
+        #         research_points1[i].pop()
+        research_points = []
+
+        for i in range(len(research_points1)):
             point = fctx.navigation.to_coords(
-                Vec2([research_points1[i][0], research_points1[i][1]])
-            )
-            point = ((np.rint(point[0])).astype(int),
-                     (np.rint(point[1])).astype(int))
-            if occupancy_grid[point]:
-                del research_points1[i]
-            else:
-                i += 1
+                 Vec2(research_points1[i][0], research_points1[i][1]))
+            logger.debug("Point: {}".format(point))
+            if fctx.navigation.coords_in_range(point) and fctx.navigation.is_visitable(point):
+                research_points.append(point)
 
-        i = 0
-        while i < len(research_points2):
+        for i in range(len(research_points2)):
             point = fctx.navigation.to_coords(
-                Vec2([research_points2[i][0], research_points2[i][1]]))
-            point = ((np.rint(point[0])).astype(int),
-                     (np.rint(point[1])).astype(int))
-            if occupancy_grid[point]:
-                del research_points2[i]
-            else:
-                i += 1
-
-        i = 0
-        while i < len(research_points3):
+                 Vec2(research_points2[i][0], research_points2[i][1]))
+            logger.debug("Point: {}".format(point))
+            if fctx.navigation.coords_in_range(point) and fctx.navigation.is_visitable(point):
+                research_points.append(point)
+            
+        for i in range(len(research_points3)):
             point = fctx.navigation.to_coords(
-                Vec2([research_points3[i][0], research_points3[i][1]]))
-            point = ((np.rint(point[0])).astype(int),
-                     (np.rint(point[1])).astype(int))
-            if occupancy_grid[point]:
-                del research_points3[i]
-            else:
-                i += 1
-
-            # Move at the end isolated points
-        max_dist = 1.50
-        min_neighbourg = 3
-
-        nb = 0
-        id = 0
-        while nb < len(research_points2):
-            given_point = research_points2[id]
-            count = 0
-            for point in research_points2:
-                if self.distance(point, given_point) < max_dist:
-                    count += 1
-
-            if count <= min_neighbourg:
-                research_points2.remove(given_point)
-                research_points2.append(given_point)
-            else:
-                id += 1
-            nb += 1
-
-        nb = 0
-        id = 0
-        while nb < len(research_points3):
-            given_point = research_points3[id]
-            count = 0
-            for point in research_points3:
-                if self.distance(point, given_point) < max_dist:
-                    count += 1
-
-            if count <= min_neighbourg:
-                print(given_point, ' put at the end')
-                research_points3.remove(given_point)
-                research_points3.append(given_point)
-            else:
-                id += 1
-            nb += 1
-
-        research_points = research_points1.copy()
-        research_points += research_points2
-        research_points += research_points3
-
+                 Vec2(research_points3[i][0], research_points3[i][1]))
+            logger.debug("Point: {}".format(point))
+            if fctx.navigation.coords_in_range(point) and fctx.navigation.is_visitable(point):
+                research_points.append(point)
+        print(research_points)
         self.research_points = research_points
-
-    def distance(self, p1, p2):
-        """
-        Return the distance between two points 
-
-        Args:
-            p1 (Tuple): First point
-            p2 (Tuple): Second point
-
-        Returns:
-            (Double): Distance between the points 
-        """
-        return math.sqrt((p1[0]-p2[0])**2 + (p1[1]-p2[1])**2)
 
 
 class TargetCentering(State):

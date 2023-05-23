@@ -6,7 +6,7 @@ CACHE_DIR: Final = "./cache"
 LOG_PERIOD_MS: Final = 50
 URI: Final = "radio://0/10/2M/E7E7E7E711"
 
-INITIAL_POSITION: Final = (1.0, 1.0)
+INITIAL_POSITION: Final = (0.0, 0.0)
 
 # == Environment == #
 
@@ -31,7 +31,7 @@ ANGULAR_SCAN_VELOCITY_DEG: Final = 45.0
 
 # == Navigation == #
 
-MAP_SIZE: Final = (4.0, 4.0)
+MAP_SIZE: Final = (5.0, 3.0)
 OPTIMISE_PATH: Final = False
 RANGE_THRESHOLD: Final = 2.0
 MAP_PX_PER_M: Final = 25

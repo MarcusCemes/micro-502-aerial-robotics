@@ -29,7 +29,6 @@ class FlightController:
             navigation,
         )
         self.z_hist = np.zeros(5)
-        self._last_altitude = 0.0
 
     def update(self) -> bool:
         self.detect_pad()
@@ -54,19 +53,34 @@ class FlightController:
         t = self._fctx.trajectory
 
         position = Vec2(s.x, s.y)
-        print(f"position: {position}, yaw: {s.yaw}")
 
         pos_coords = nav.to_coords(position)
         target_coords = nav.to_coords(t.position)
 
-        path = nav.compute_path(pos_coords, target_coords)
+        if self._fctx.ctx.debug_tick:
+            path = nav.compute_path(pos_coords, target_coords)
 
-        next_waypoint = target_coords
-        if path is not None and len(path) >= 1:
-            next_waypoint = path[0]
+            if path is not None:
+                self._fctx.path = [self._fctx.navigation.to_position(c) for c in path]
+            else:
+                self._fctx.path = None
 
-        next_location = nav.to_position(next_waypoint).set_mag(0.5)
-        v = (next_location - position).rotate(-deg_to_rad(s.yaw)).limit(VELOCITY_LIMIT)
+        while self._fctx.is_near_waypoint() and self._fctx.path is not None and len(self._fctx.path) >= 0:
+            self._fctx.path.pop()
+
+        next_waypoint = t.position
+
+        if self._fctx.path is not None and len(self._fctx.path) > 0:
+            next_waypoint = self._fctx.path[0]
+            
+        # logger.debug(f"path {path}")
+        # if path is not None and len(path) >= 1:
+        #     next_waypoint = path[0]
+        logger.debug(f"current coord {position}")
+        logger.debug(f"next_waypoint {next_waypoint}")
+        # next_location = nav.to_position(next_waypoint).set_mag(0.5)
+
+        v = (next_waypoint - position).rotate((-s.yaw)).limit(VELOCITY_LIMIT) 
 
         vz = clip(t.altitude - s.z, -VERTICAL_VELOCITY_LIMIT, VERTICAL_VELOCITY_LIMIT)
 
@@ -83,17 +97,18 @@ class FlightController:
             logger.debug(
                 f"p: {position}, z: {s.z:.2f} t: {t.position}, v: {v}, vz: {vz:.2f}"
             )
-
+            
         mctl.start_linear_motion(v.x, v.y, vz, va)
 
     def detect_pad(self) -> None:
-        z_hist = self._last_altitude - self._fctx.ctx.sensors.z
-        self.delta = np.append(self.z_hist[1:], z_hist)
-        slope, _ = np.polyfit(np.arange(5), self.delta, 1)
+        z_hist = self._fctx.ctx.sensors.z
+        self.z_hist = np.append(self.z_hist[1:], z_hist)
+        slope, _ = np.polyfit(np.arange(5), self.z_hist, 1)
         if np.abs(slope) > MAX_SLOPE:
             logger.info(f"🎯 Detected pad!")
             self._fctx.over_pad = True
-        elif np.abs(slope) < MAX_SLOPE: # changer pour mettre la condition de si on était précédément sur le pad?
+        elif np.abs(slope) < -MAX_SLOPE and self._fctx.over_pad:
+            # risque de poser pbm: slope hard négative quand on arrive sur le pad, puis positive une fois que le shift sort du vecteur, à tester
             logger.info(f"🎯 Lost pad!")   
             self._fctx.over_pad = False
 
@@ -106,7 +121,3 @@ class FlightController:
         #     logger.info(f"🎯 Lost pad!")
         #     self._fctx.over_pad = False
 
-        self._last_altitude = self._fctx.ctx.sensors.z  # on pourrait remplacer self._fctx.ctx.sensors.z par self.z_hist[-1]
-
-    def get_last_alitutde(self) -> float:
-        return self.z_hist[-1]

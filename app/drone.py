@@ -99,7 +99,7 @@ class Drone:
             return self._last_sensor_data
 
     async def reset_estimator(self) -> None:
-        logger.debug("Resting Kalman estimator...")
+        logger.debug("🗿Reseting Kalman estimator...")
 
         (x, y) = INITIAL_POSITION
         self.cf.param.set_value("kalman.initialX", f"{x:.2f}")

@@ -96,7 +96,7 @@ class Vec2:
 
     def rotate(self, angle: float) -> Vec2:
         s, c = sin(angle), cos(angle)
-        return Vec2(self.x * c - self.y * s, self.x * s + self.y * c)
+        return Vec2(self.x * c - self.y * s, self.x * s + self.y * c) # attention, pbm de signe ici
 
     def set_mag(self, mag: float) -> Vec2:
         if self.x == 0.0 and self.y == 0.0:
