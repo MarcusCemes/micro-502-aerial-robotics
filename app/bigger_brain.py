@@ -1,4 +1,5 @@
 from asyncio import Queue, QueueEmpty, create_task, wait
+from dataclasses import asdict
 from enum import Enum
 
 from loguru import logger
@@ -43,7 +44,7 @@ class BiggerBrain:
                 maybe_cmd = await self._wait_for_event(cmds)
 
                 self._ctx.outlet.broadcast(
-                    {"type": "sensors", "data": self._ctx.sensors}
+                    {"type": "sensors", "data": asdict(self._ctx.sensors)}
                 )
 
                 # s = self._ctx.sensors
