@@ -6,7 +6,7 @@ CACHE_DIR: Final = "./cache"
 LOG_PERIOD_MS: Final = 50
 URI: Final = "radio://0/10/2M/E7E7E7E711"
 
-INITIAL_POSITION: Final = (3.0, 1.0)
+INITIAL_POSITION: Final = (2.5, 1.5)
 
 # == Environment == #
 
@@ -18,11 +18,12 @@ PAD_HEIGHT: Final = 0.1
 
 CRUISING_ALTITUDE: Final = 0.5
 
-ALTITUDE_ERROR: Final = 0.05
+ALTITUDE_ERROR: Final = 0.08
 POSITION_ERROR: Final = 0.2
+POSITION_ERROR_PAD: Final = 0.1
 
 PAD_THRESHOLD: Final = 0.1
-MAX_SLOPE = 0.02
+MAX_SLOPE = 0.01
 
 VELOCITY_LIMIT: Final = 0.2
 VERTICAL_VELOCITY_LIMIT: Final = 0.1
@@ -36,6 +37,7 @@ MAP_SIZE: Final = (5.0, 3.0)
 OPTIMISE_PATH: Final = True
 RANGE_THRESHOLD: Final = 2.0
 MAP_PX_PER_M: Final = 25
+LATERAL_MOVEMENT: Final = 0.4
 
 # == Miscellaneous == #
 

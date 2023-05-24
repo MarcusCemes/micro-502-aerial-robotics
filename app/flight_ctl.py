@@ -33,12 +33,11 @@ class FlightController:
         self.range_down_list = np.zeros(500)
 
     def update(self) -> bool:
-        if self._fctx.pad_detection:
-            self.detect_pad()
-
         return self.next()
 
     def next(self) -> bool:
+        range_down = self._fctx.ctx.sensors.z
+        self._fctx.z_hist = np.append(self._fctx.z_hist[1:], range_down)
         next = self._state.next(self._fctx)
 
         z_hist = self._fctx.ctx.sensors.z
@@ -105,11 +104,11 @@ class FlightController:
 
         vz = clip(delta_alt, -VERTICAL_VELOCITY_LIMIT, VERTICAL_VELOCITY_LIMIT)
 
-        va = ANGULAR_SCAN_VELOCITY_
+        va = ANGULAR_SCAN_VELOCITY_DEG
 
         if not self._fctx.scan:
             va = clip(
-                rad_to_deg(normalise_angle(t.orientation - s.yaw)),
+                rad_to_deg(normalise_angle(s.yaw-t.orientation)),
                 -ANGULAR_VELOCITY_LIMIT_DEG,
                 ANGULAR_VELOCITY_LIMIT_DEG,
             )
@@ -120,28 +119,3 @@ class FlightController:
         #     )
 
         mctl.start_linear_motion(v.x, v.y, vz, va)
-
-    def detect_pad(self) -> None:
-        logger.debug(f'Over pad {self._fctx.over_pad}')
-        z_hist = self._fctx.ctx.sensors.z
-        self.z_hist = np.append(self.z_hist[1:], z_hist)
-        slope, _ = np.polyfit(np.arange(len(self.z_hist)), self.z_hist, 1)
-
-        logger.debug(f'Slope {slope}')
-        if slope > MAX_SLOPE:
-            logger.info(f"🎯 Detected pad!")
-            logger.info(f"🍆👉👌💦❤")
-            self._fctx.over_pad = True
-        elif slope < -MAX_SLOPE and self._fctx.over_pad:
-            # risque de poser pbm: slope hard négative quand on arrive sur le pad, puis positive une fois que le shift sort du vecteur, à tester
-            logger.info(f"🎯 Lost pad!")
-            self._fctx.over_pad = False
-
-        # delta = np.abs(self._last_altitude - self._fctx.ctx.sensors.z)
-
-        # if delta > PAD_THRESHOLD:
-        #     logger.info(f"🎯 Detected pad!")
-        #     self._fctx.over_pad = True
-        # elif delta < PAD_THRESHOLD:
-        #     logger.info(f"🎯 Lost pad!")
-        #     self._fctx.over_pad = False
