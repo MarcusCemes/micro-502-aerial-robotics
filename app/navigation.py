@@ -31,7 +31,7 @@ Field = npt.NDArray[np.uint8]
 MAP_DTYPE = np.int8
 MAP_MIN = -127
 MAP_MAX = 127
-OCCUPATION_THRESHOLD = 4
+OCCUPATION_THRESHOLD = 3
 
 UNIT_SENSOR_VECTORS: Matrix2x4 = np.array([[1, 0, -1, 0], [0, 1, 0, -1]], dtype=DTYPE)
 
@@ -197,6 +197,7 @@ class Navigation:
         return distance / MAP_PX_PER_M
 
     def plot_and_save_path(self, path: list[Coords]) -> None:
+        plt.figure("path")
         plt.xlim(0, self.map.shape[0])
         plt.ylim(0, self.map.shape[1])
 
@@ -208,7 +209,7 @@ class Navigation:
                 markersize=2,
                 markeredgecolor="red",
             )
-
+    
         plt.savefig("output/path.png")
 
 

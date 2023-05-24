@@ -53,7 +53,8 @@ class FlightContext:
     trajectory: Trajectory = field(default_factory=Trajectory)
 
     home_pad: Vec2 | None = None
-    over_pad: bool = False
+    pad_detection : bool = False
+    over_pad: bool = True
     path: list[Vec2] | None = None
     scan: bool = False
     target_pad: Vec2 | None = None
@@ -109,11 +110,21 @@ class Takeoff(State):
 
     def next(self, fctx: FlightContext) -> State | None:
         if fctx.is_near_target_altitude():
-            return TargetSearch()
+            fctx.pad_detection = True
+            return Cross()
 
         return None
 
+class Cross(State):
+    def start(self, fctx: FlightContext) -> None:
+        logger.info("🛫🏢🏢 Crossing")
+        fctx.trajectory.position.x = 3.5
+        fctx.scan = True
 
+    def next(self, fctx: FlightContext) -> State | None:
+        if fctx.is_near_target():
+            return TargetSearch()
+    
 class Scan(State):
     def __init__(self):
         self._timer = Timer()
@@ -134,6 +145,7 @@ class GoForward(State):
     def start(self, fctx: FlightContext) -> None:
         fctx.trajectory.position.x = 2.0
         # fctx.trajectory.orientation = pi
+        
         fctx.scan = True
 
     def next(self, fctx: FlightContext) -> State | None:
@@ -186,6 +198,7 @@ class TargetSearch(State):
         )
 
     def next(self, fctx: FlightContext):
+        self.update_research_point(fctx)
         if self.index == len(self.research_points):
             logger.info("No target found")
             return Stop()
@@ -193,6 +206,12 @@ class TargetSearch(State):
             # move to next target point
             print("no Target found on this point")
             self.index = self.index + 1
+        fctx.trajectory.position = fctx.navigation.to_position(
+            self.research_points[self.index]
+        )
+        
+        if fctx.over_pad:
+            return TargetCentering()
 
     def compute_target_map(self, fctx: FlightContext):
         research_points1 = [
@@ -354,13 +373,21 @@ class TargetSearch(State):
         print(research_points)
         self.research_points = research_points
 
+    def update_research_point(self, fcxt: FlightContext):
+        index = 0
+        while index < len(self.research_points):
+            if not fcxt.navigation.is_visitable(self.research_points[index]):
+                logger.info(f"🐣Research point {self.research_points[index]} is not visitable")
+                self.research_points.pop(index)
+            else:
+                index += 1
 
 class TargetCentering(State):
-    def __init__(self, fctx: FlightContext):
+    def __init__(self):
         self.target_pad = Vec2 | None
         self.platform_x_found: bool = False
         self.platform_y_found: bool = False
-        self.last_over_pad: bool = True
+        self.last_over_pad: bool = False
 
         self.axe_up: int = 0
         self.axe_down: int = 1
@@ -370,7 +397,7 @@ class TargetCentering(State):
         self.axe_Y: int = 1
         self.research_axe: int = self.axe_X
 
-        self.reseatch_counter: int = 0
+        self.research_counter: int = 0
         self.change_axe: int = 0
         self.pad_width: float = 0.15
         self.lateral_movement = 0.22
@@ -385,7 +412,7 @@ class TargetCentering(State):
             fctx.target_pad = self.target_pad
             return GoLower()
 
-    def set_target(self, fctx: FlightContext):
+    def set_target(self):
         if self.research_axe == self.axe_X:
             if self.research_dir == self.axe_up:
                 vect = Vec2(self.lateral_movement, 0)
@@ -412,8 +439,11 @@ class TargetCentering(State):
             (Boolean): Center found or not
         """
 
+        self.set_target()
+
         if fctx.over_pad is not self.last_over_pad:
             self.update_platform_pos(fctx)
+        self.last_over_pad = fctx.over_pad
 
         if self.change_axe >= 2:
             if self.research_axe == self.axe_X:
@@ -422,9 +452,9 @@ class TargetCentering(State):
                 self.research_axe = self.axe_X
 
             self.change_axe = 0
-            self.reseatch_counter += 1
+            self.research_counter += 1
 
-        if self.reseatch_counter >= 5:
+        if self.research_counter >= 5:
             logger.info(f"🔒 Stuck !!!")
             # stuck = True
 
@@ -432,26 +462,24 @@ class TargetCentering(State):
             return
 
         elif self.research_axe == self.axe_X:
-            if self.research_state == self.axe_up:
+            if self.research_dir == self.axe_up:
                 if fctx.is_near_target():
                     self.change_axe += 1
-                    self.research_state = self.axe_down
+                    self.research_dir = self.axe_down
 
             else:
                 if fctx.is_near_target():
-                    self.research_state = self.axe_up
+                    self.research_dir = self.axe_up
 
         elif self.research_axe == self.axe_Y:
-            if self.research_state == self.axe_up:
+            if self.research_dir == self.axe_up:
                 if fctx.is_near_target():
                     self.change_axe += 1
-                    self.research_state = self.axe_down
+                    self.research_dir = self.axe_down
 
             else:
                 if fctx.is_near_target():
-                    self.research_state = self.axe_up
-
-        self.set_target(fctx)
+                    self.research_dir = self.axe_up
 
     def update_platform_pos(self, fctx: FlightContext):
         """
@@ -473,9 +501,9 @@ class TargetCentering(State):
         elif angle >= -5 * np.pi / 8 and angle < -3 * np.pi / 8:
             logger.info(f"⬅")
             if fctx.over_pad:
-                self.target_pad = [self.init_pos[0], self.init_pos[1] + self.pad_width]
+                self.target_pad = Vec2(self.init_pos.x, self.init_pos.y + self.pad_width)
             else:
-                self.target_pad = [self.init_pos[0], self.init_pos[1] - self.pad_width]
+                self.target_pad = Vec2(self.init_pos.x, self.init_pos.y - self.pad_width)
             self.platform_y_found = True
             self.change_axe = 0
             self.research_axe = self.axe_X
@@ -489,9 +517,9 @@ class TargetCentering(State):
         elif angle >= -np.pi / 8 and angle < np.pi / 8:
             logger.info(f"⬆")
             if fctx.over_pad:
-                self.target_pad = [self.init_pos[0] + self.pad_width, self.init_pos[1]]
+                self.target_pad = Vec2(self.init_pos.x + self.pad_width, self.init_pos.y)
             else:
-                self.target_pad = [self.init_pos[0] - self.pad_width, self.init_pos[1]]
+                self.target_pad = Vec2(self.init_pos.x - self.pad_width, self.init_pos.y)
             self.platform_x_found = True
             self.change_axe = 0
             self.research_axe = self.axe_Y
@@ -505,9 +533,9 @@ class TargetCentering(State):
         elif angle >= 3 * np.pi / 8 and angle < 5 * np.pi / 8:
             logger.info(f"➡")
             if fctx.over_pad:
-                self.target_pad = [self.init_pos[0], self.init_pos[1] - self.pad_width]
+                self.target_pad = Vec2(self.init_pos.x, self.init_pos.y - self.pad_width)
             else:
-                self.target_pad = [self.init_pos[0], self.init_pos[1] + self.pad_width]
+                self.target_pad = Vec2(self.init_pos.x, self.init_pos.y + self.pad_width)
             self.platform_y_found = True
             self.change_axe = 0
             self.research_axe = self.axe_X
@@ -521,9 +549,9 @@ class TargetCentering(State):
         elif angle >= 7 * np.pi / 8 or angle < -7 * np.pi / 8:
             logger.info(f"⬇")
             if fctx.over_pad:
-                self.target_pad = [self.init_pos[0] - self.pad_width, self.init_pos[1]]
+                self.target_pad = Vec2(self.init_pos.x - self.pad_width, self.init_pos.y)
             else:
-                self.target_pad = [self.init_pos[0] + self.pad_width, self.init_pos[1]]
+                self.target_pad = Vec2(self.init_pos.x + self.pad_width, self.init_pos.y)
             self.platform_x_found = True
             self.change_axe = 0
             self.research_axe = self.axe_Y

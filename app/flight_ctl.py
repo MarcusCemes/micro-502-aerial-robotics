@@ -9,11 +9,14 @@ from .config import (
     ANGULAR_VELOCITY_LIMIT_DEG,
     MAX_SLOPE,
     VELOCITY_LIMIT,
+    PAD_HEIGHT,
     VERTICAL_VELOCITY_LIMIT,
 )
 from .flight_states import Boot, FlightContext, State, Stop
 from .navigation import Navigation
 from .utils.math import Vec2, clip, normalise_angle, rad_to_deg
+
+import matplotlib.pyplot as plt
 
 
 class FlightController:
@@ -24,16 +27,27 @@ class FlightController:
 
         self._fctx = FlightContext(
             ctx,
-            navigation,
+            navigation
         )
-        self.z_hist = np.zeros(5)
+        self.z_hist = np.zeros(3)
+        self.range_down_list = np.zeros(500)
 
     def update(self) -> bool:
-        self.detect_pad()
+        if self._fctx.pad_detection:
+            self.detect_pad()
+
         return self.next()
 
     def next(self) -> bool:
         next = self._state.next(self._fctx)
+
+        z_hist = self._fctx.ctx.sensors.z
+        self.range_down_list = np.append(self.range_down_list[1:], z_hist)
+
+        if self._fctx.ctx.debug_tick:
+            plt.figure("Range down")
+            plt.plot(np.arange(len(self.range_down_list)), self.range_down_list)
+            plt.savefig('output/range_down.png')
 
         if next is not None:
             if type(next) == self._state:
@@ -81,23 +95,17 @@ class FlightController:
         else:
             logger.info("🚧 No path found, going straight to target")
 
-        # logger.debug(f"path {path}")
-        # if path is not None and len(path) >= 1:
-        #     next_waypoint = path[0]
-        logger.debug(f"current coord {position}")
-        logger.debug(f"next_waypoint {next_waypoint}")
-        # next_location = nav.to_position(next_waypoint).set_mag(0.5)
 
         v = (next_waypoint - position).rotate((-s.yaw)).limit(VELOCITY_LIMIT)
 
-        vz = clip(t.altitude - s.z, -VERTICAL_VELOCITY_LIMIT, VERTICAL_VELOCITY_LIMIT)
+        delta_alt = t.altitude - s.z
 
-        va = ANGULAR_SCAN_VELOCITY_DEG
+        if self._fctx.over_pad:
+            delta_alt -= PAD_HEIGHT
 
-        if self._fctx.ctx.debug_tick:
-            logger.debug(f"At {position}")
-            logger.debug(f"Next waypoint: {next_waypoint}")
-            logger.debug(f"Velocity: {v}")
+        vz = clip(delta_alt, -VERTICAL_VELOCITY_LIMIT, VERTICAL_VELOCITY_LIMIT)
+
+        va = ANGULAR_SCAN_VELOCITY_
 
         if not self._fctx.scan:
             va = clip(
@@ -106,22 +114,25 @@ class FlightController:
                 ANGULAR_VELOCITY_LIMIT_DEG,
             )
 
-        if self._fctx.ctx.debug_tick:
-            logger.debug(
-                f"p: {position}, z: {s.z:.2f} t: {t.position}, v: {v}, vz: {vz:.2f}"
-            )
+        # if self._fctx.ctx.debug_tick:
+        #     logger.debug(
+        #         f"p: {position}, z: {s.z:.2f} t: {t.position}, v: {v}, vz: {vz:.2f}"
+        #     )
 
         mctl.start_linear_motion(v.x, v.y, vz, va)
 
     def detect_pad(self) -> None:
+        logger.debug(f'Over pad {self._fctx.over_pad}')
         z_hist = self._fctx.ctx.sensors.z
         self.z_hist = np.append(self.z_hist[1:], z_hist)
-        slope, _ = np.polyfit(np.arange(5), self.z_hist, 1)
-        if np.abs(slope) > MAX_SLOPE:
+        slope, _ = np.polyfit(np.arange(len(self.z_hist)), self.z_hist, 1)
+
+        logger.debug(f'Slope {slope}')
+        if slope > MAX_SLOPE:
             logger.info(f"🎯 Detected pad!")
             logger.info(f"🍆👉👌💦❤")
             self._fctx.over_pad = True
-        elif np.abs(slope) < -MAX_SLOPE and self._fctx.over_pad:
+        elif slope < -MAX_SLOPE and self._fctx.over_pad:
             # risque de poser pbm: slope hard négative quand on arrive sur le pad, puis positive une fois que le shift sort du vecteur, à tester
             logger.info(f"🎯 Lost pad!")
             self._fctx.over_pad = False

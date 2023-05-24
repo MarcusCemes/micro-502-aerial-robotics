@@ -41,6 +41,9 @@ class BiggerBrain:
                     debug_counter = 0
                     self._ctx.debug_tick = True
 
+                if self._ctx.new_data.is_set():
+                    logger.warning("🐢 Too slow, missed sensor data events!")
+
                 maybe_cmd = await self._wait_for_event(cmds)
 
                 self._ctx.outlet.broadcast(
@@ -68,6 +71,7 @@ class BiggerBrain:
 
                 self._ctx.debug_tick = False
 
+            logger.info("🚁 Landing")
             mctl.land()
 
         finally:
