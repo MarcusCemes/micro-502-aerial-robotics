@@ -213,7 +213,9 @@ class TargetSearch(State):
         )
         
         if pad_detection(fctx):
-            return TargetCentering()
+            fctx.target_pad = fctx.navigation.global_position()
+            logger.debug(f"🤣First detetion {fctx.target_pad}")
+            return TargetCentering(fctx)
 
     def compute_target_map(self, fctx: FlightContext):
         research_points1 = [
@@ -311,7 +313,7 @@ class TargetCenteringEasy(State):
 
     def start(self, fctx: FlightContext):
         self.pad_pos = fctx.navigation.global_position() + Vec2(fctx.ctx.sensors.vx, fctx.ctx.sensors.vy).set_mag(0.15)
-        fctx.trajectory.position = self.init_pos + self.pad_pos
+        fctx.trajectory.position = self.pad_pos + self.pad_pos
 
 
     def next(self, fctx: FlightContext) -> State | None:
@@ -321,8 +323,8 @@ class TargetCenteringEasy(State):
 
 
 class TargetCentering(State):
-    def __init__(self):
-        self.target_pad = Vec2 | None
+    def __init__(self, fctx: FlightContext):
+        self.target_pad = fctx.target_pad
         self.platform_x_found: bool = False
         self.platform_y_found: bool = False
         self.last_over_pad: bool = False
@@ -341,9 +343,6 @@ class TargetCentering(State):
         self.pad_width: float = 0.1
 
     def start(self, fctx: FlightContext):
-        self.init_pos = fctx.navigation.global_position()
-        self.target_pad = self.init_pos
-        logger.debug(f"🤣First detetion {self.init_pos}")
         fctx.scan = False
         # Corriger retour à z
 
@@ -440,9 +439,18 @@ class TargetCentering(State):
             position (List): actual position at the moment of the call
         """
 
-        angle = -math.atan2(fctx.ctx.sensors.vy, fctx.ctx.sensors.vx)
-        # remplacer l'angle par les Gulien
-
+        # angle = -math.atan2(fctx.ctx.sensors.vy, fctx.ctx.sensors.vx)
+        if self.research_axe == self.axe_X:
+            if self.research_dir == self.axe_up:
+                angle = 0
+            else:
+                angle = np.pi
+        else:
+            if self.research_dir == self.axe_up:
+                angle = np.pi/2
+            else:
+                angle = -np.pi/2
+            
         # Back left
         if angle >= -7 * np.pi / 8 and angle < -5 * np.pi / 8:
             logger.info(f"↙")
@@ -452,9 +460,9 @@ class TargetCentering(State):
         elif angle >= -5 * np.pi / 8 and angle < -3 * np.pi / 8:
             logger.info(f"⬅")
             if fctx.over_pad:
-                self.target_pad.y = self.init_pos.y + self.pad_width
+                self.target_pad.y = fctx.navigation.global_position().y + self.pad_width
             else:
-                self.target_pad.y = self.init_pos.y - self.pad_width
+                self.target_pad.y = fctx.navigation.global_position().y - self.pad_width
             self.platform_y_found = True
             self.change_axe = 0
             self.research_axe = self.axe_X
@@ -468,9 +476,9 @@ class TargetCentering(State):
         elif angle >= -np.pi / 8 and angle < np.pi / 8:
             logger.info(f"⬆")
             if fctx.over_pad:
-                self.target_pad.x = self.init_pos.x + self.pad_width
+                self.target_pad.x = fctx.navigation.global_position().x + self.pad_width
             else:
-                self.target_pad.x = self.init_pos.x - self.pad_width
+                self.target_pad.x = fctx.navigation.global_position().x - self.pad_width
             self.platform_x_found = True
             self.change_axe = 0
             self.research_axe = self.axe_Y
@@ -484,9 +492,9 @@ class TargetCentering(State):
         elif angle >= 3 * np.pi / 8 and angle < 5 * np.pi / 8:
             logger.info(f"➡")
             if fctx.over_pad:
-                self.target_pad.y = self.init_pos.y - self.pad_width
+                self.target_pad.y = fctx.navigation.global_position().y - self.pad_width
             else:
-                self.target_pad.y = self.init_pos.y + self.pad_width
+                self.target_pad.y = fctx.navigation.global_position().y + self.pad_width
             self.platform_y_found = True
             self.change_axe = 0
             self.research_axe = self.axe_X
@@ -500,9 +508,9 @@ class TargetCentering(State):
         elif angle >= 7 * np.pi / 8 or angle < -7 * np.pi / 8:
             logger.info(f"⬇")
             if fctx.over_pad:
-                self.target_pad.x = self.init_pos.x - self.pad_width
+                self.target_pad.x = fctx.navigation.global_position().x - self.pad_width
             else:
-                self.target_pad.x = self.init_pos.x + self.pad_width
+                self.target_pad.x = fctx.navigation.global_position().x + self.pad_width
             self.platform_x_found = True
             self.change_axe = 0
             self.research_axe = self.axe_Y
@@ -527,6 +535,8 @@ def pad_detection(fctx: FlightContext):
     # if fctx.ctx.debug_tick:
         # logger.debug(f"Over pad {fctx.over_pad}")
     # logger.debug(f"Slope {slope}")
+    
+    # il detecte des pads partout !!
 
     if slope > MAX_SLOPE:
         logger.info(f"🎯 Detected pad!")
