@@ -1,3 +1,4 @@
+import matplotlib.pyplot as plt  # type: ignore
 import numpy as np
 from loguru import logger
 
@@ -8,15 +9,13 @@ from .config import (
     ANGULAR_SCAN_VELOCITY_DEG,
     ANGULAR_VELOCITY_LIMIT_DEG,
     MAX_SLOPE,
-    VELOCITY_LIMIT,
     PAD_HEIGHT,
+    VELOCITY_LIMIT,
     VERTICAL_VELOCITY_LIMIT,
 )
 from .flight_states import Boot, FlightContext, State, Stop
 from .navigation import Navigation
 from .utils.math import Vec2, clip, normalise_angle, rad_to_deg
-
-import matplotlib.pyplot as plt
 
 
 class FlightController:
@@ -25,10 +24,7 @@ class FlightController:
     def __init__(self, ctx: Context, navigation: Navigation) -> None:
         self._state = Boot()
 
-        self._fctx = FlightContext(
-            ctx,
-            navigation
-        )
+        self._fctx = FlightContext(ctx, navigation)
         self.z_hist = np.zeros(3)
         self.range_down_list = np.zeros(500)
 
@@ -47,7 +43,7 @@ class FlightController:
         if self._fctx.ctx.debug_tick:
             plt.figure("Range down")
             plt.plot(np.arange(len(self.range_down_list)), self.range_down_list)
-            plt.savefig('output/range_down.png')
+            plt.savefig("output/range_down.png")
 
         if next is not None:
             if type(next) == self._state:
@@ -73,7 +69,9 @@ class FlightController:
         pos_coords = nav.to_coords(position)
         target_coords = nav.to_coords(t.position)
 
-        if self._fctx.ctx.debug_tick:
+        if self._fctx.path_finding is None:
+            path = None
+        elif self._fctx.ctx.debug_tick:
             path = nav.compute_path(pos_coords, target_coords)
 
             if path is not None:
@@ -95,7 +93,6 @@ class FlightController:
         else:
             logger.info("🚧 No path found, going straight to target")
 
-
         v = (next_waypoint - position).rotate((-s.yaw)).limit(VELOCITY_LIMIT)
 
         delta_alt = t.altitude - s.z
@@ -105,7 +102,7 @@ class FlightController:
 
         vz = clip(delta_alt, -VERTICAL_VELOCITY_LIMIT, VERTICAL_VELOCITY_LIMIT)
 
-        va = ANGULAR_SCAN_VELOCITY_
+        va = ANGULAR_SCAN_VELOCITY_DEG
 
         if not self._fctx.scan:
             va = clip(
@@ -114,32 +111,39 @@ class FlightController:
                 ANGULAR_VELOCITY_LIMIT_DEG,
             )
 
-        # if self._fctx.ctx.debug_tick:
-        #     logger.debug(
-        #         f"p: {position}, z: {s.z:.2f} t: {t.position}, v: {v}, vz: {vz:.2f}"
-        #     )
-
         mctl.start_linear_motion(v.x, v.y, vz, va)
 
     def detect_pad(self) -> None:
-        logger.debug(f'Over pad {self._fctx.over_pad}')
-        z_hist = self._fctx.ctx.sensors.z
-        self.z_hist = np.append(self.z_hist[1:], z_hist)
-        slope, _ = np.polyfit(np.arange(len(self.z_hist)), self.z_hist, 1)
+        pass
+        # z_hist = self._fctx.ctx.sensors.z
+        # self.z_hist = np.append(self.z_hist[1:], z_hist)
+        # slope, _ = np.polyfit(np.arange(len(self.z_hist)), self.z_hist, 1)
 
-        logger.debug(f'Slope {slope}')
-        if slope > MAX_SLOPE:
-            logger.info(f"🎯 Detected pad!")
-            logger.info(f"🍆👉👌💦❤")
-            self._fctx.over_pad = True
-        elif slope < -MAX_SLOPE and self._fctx.over_pad:
-            # risque de poser pbm: slope hard négative quand on arrive sur le pad, puis positive une fois que le shift sort du vecteur, à tester
-            logger.info(f"🎯 Lost pad!")
-            self._fctx.over_pad = False
+        # if self._fctx.ctx.debug_tick:
+        #     logger.debug(f"Over pad {self._fctx.over_pad}")
+        #     logger.debug(f"Slope {slope}")
+
+        # if slope > MAX_SLOPE:
+        #     logger.info(f"🎯 Detected pad!")
+        #     self._fctx.over_pad = True
+        # elif slope < -MAX_SLOPE and self._fctx.over_pad:
+        #     # risque de poser pbm: slope hard négative quand on arrive sur le pad, puis positive une fois que le shift sort du vecteur, à tester
+        #     logger.info(f"🎯 Lost pad!")
+        #     self._fctx.over_pad = False
 
         # delta = np.abs(self._last_altitude - self._fctx.ctx.sensors.z)
 
         # if delta > PAD_THRESHOLD:
+        #     logger.info(f"🎯 Detected pad!")
+        #     self._fctx.over_pad = True
+        # elif delta < PAD_THRESHOLD:
+        #     logger.info(f"🎯 Lost pad!")
+        #     self._fctx.over_pad = False
+        #     logger.info(f"🎯 Detected pad!")
+        #     self._fctx.over_pad = True
+        # elif delta < PAD_THRESHOLD:
+        #     logger.info(f"🎯 Lost pad!")
+        #     self._fctx.over_pad = False
         #     logger.info(f"🎯 Detected pad!")
         #     self._fctx.over_pad = True
         # elif delta < PAD_THRESHOLD:

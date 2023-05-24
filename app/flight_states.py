@@ -8,7 +8,12 @@ import numpy as np
 from loguru import logger
 
 from .common import Context
-from .config import ALTITUDE_ERROR, INITIAL_POSITION, POSITION_ERROR
+from .config import (
+    ALTITUDE_ERROR,
+    INITIAL_POSITION,
+    POSITION_ERROR,
+    OSCILLATIONS_AMPLITUDE,
+)
 from .navigation import Navigation
 from .utils.math import Vec2
 from .utils.timer import Timer
@@ -53,9 +58,10 @@ class FlightContext:
     trajectory: Trajectory = field(default_factory=Trajectory)
 
     home_pad: Vec2 | None = None
-    pad_detection : bool = False
+    pad_detection: bool = False
     over_pad: bool = True
     path: list[Vec2] | None = None
+    path_finding: bool = False
     scan: bool = False
     target_pad: Vec2 | None = None
 
@@ -101,19 +107,23 @@ class Boot(State):
         (x, y) = INITIAL_POSITION
         fctx.trajectory.position = Vec2(x, y)
 
-        return Takeoff()
-
-
-class Takeoff(State):
-    def start(self, fctx: FlightContext) -> None:
-        fctx.trajectory.altitude = 0.5
-
-    def next(self, fctx: FlightContext) -> State | None:
         if fctx.is_near_target_altitude():
-            fctx.pad_detection = True
             return Cross()
 
         return None
+
+
+# class Takeoff(State):
+#     def start(self, fctx: FlightContext) -> None:
+#         fctx.trajectory.altitude = 0.5
+
+#     def next(self, fctx: FlightContext) -> State | None:
+#         if fctx.is_near_target_altitude():
+#             fctx.pad_detection = True
+#             return Cross()
+
+#         return None
+
 
 class Cross(State):
     def start(self, fctx: FlightContext) -> None:
@@ -123,8 +133,12 @@ class Cross(State):
 
     def next(self, fctx: FlightContext) -> State | None:
         if fctx.is_near_target():
+            fctx.pad_detection = True
             return TargetSearch()
-    
+
+        return None
+
+
 class Scan(State):
     def __init__(self):
         self._timer = Timer()
@@ -145,7 +159,7 @@ class GoForward(State):
     def start(self, fctx: FlightContext) -> None:
         fctx.trajectory.position.x = 2.0
         # fctx.trajectory.orientation = pi
-        
+
         fctx.scan = True
 
     def next(self, fctx: FlightContext) -> State | None:
@@ -178,11 +192,6 @@ class GoLower(State):
         return None
 
 
-class Stop(State):
-    def next(self, _) -> State | None:
-        return None
-
-
 class TargetSearch(State):
     def __init__(self):
         self.research_points = []
@@ -190,6 +199,7 @@ class TargetSearch(State):
 
     def start(self, fctx: FlightContext):
         fctx.scan = True
+        fctx.path_finding = True
         # compute target map
         self.compute_target_map(fctx)
         # set target
@@ -209,7 +219,24 @@ class TargetSearch(State):
         fctx.trajectory.position = fctx.navigation.to_position(
             self.research_points[self.index]
         )
-        
+
+        # pad detection
+        z_hist = self._fctx.ctx.sensors.z
+        self.z_hist = np.append(self.z_hist[1:], z_hist)
+        slope, _ = np.polyfit(np.arange(len(self.z_hist)), self.z_hist, 1)
+
+        if self._fctx.ctx.debug_tick:
+            logger.debug(f"Over pad {self._fctx.over_pad}")
+            logger.debug(f"Slope {slope}")
+
+        if slope > MAX_SLOPE:
+            logger.info(f"🎯 Detected pad!")
+            self._fctx.over_pad = True
+        elif slope < -MAX_SLOPE and self._fctx.over_pad:
+            # risque de poser pbm: slope hard négative quand on arrive sur le pad, puis positive une fois que le shift sort du vecteur, à tester
+            logger.info(f"🎯 Lost pad!")
+            self._fctx.over_pad = False
+
         if fctx.over_pad:
             return TargetCentering()
 
@@ -258,87 +285,6 @@ class TargetSearch(State):
             (3.8, 2.3),
         ]
 
-        # occupancy_grid = fctx.navigation.map
-
-        # i = 0
-        # while i < len(research_points1):
-        #     point = fctx.navigation.to_coords(
-        #         Vec2(research_points1[i][0], research_points1[i][1])
-        #     )
-        #     point = ((np.rint(point[0])).astype(int),
-        #              (np.rint(point[1])).astype(int))
-        #     if occupancy_grid[point]:
-        #         del research_points1[i]
-        #     else:
-        #         i += 1
-
-        # i = 0
-        # while i < len(research_points2):
-        #     point = fctx.navigation.to_coords(
-        #         Vec2(research_points2[i][0], research_points2[i][1]))
-        #     point = ((np.rint(point[0])).astype(int),
-        #              (np.rint(point[1])).astype(int))
-        #     if occupancy_grid[point]:
-        #         del research_points2[i]
-        #     else:
-        #         i += 1
-
-        # i = 0
-        # while i < len(research_points3):
-        #     point = fctx.navigation.to_coords(
-        #         Vec2(research_points3[i][0], research_points3[i][1]))
-        #     point = ((np.rint(point[0])).astype(int),
-        #              (np.rint(point[1])).astype(int))
-        #     if occupancy_grid[point]:
-        #         del research_points3[i]
-        #     else:
-        #         i += 1
-
-        #     # Move at the end isolated points
-        # max_dist = 1.50
-        # min_neighbourg = 3
-
-        # nb = 0
-        # id = 0
-        # while nb < len(research_points2):
-        #     given_point = research_points2[id]
-        #     count = 0
-        #     for point in research_points2:
-        #         if self.distance(point, given_point) < max_dist:
-        #             count += 1
-
-        #     if count <= min_neighbourg:
-        #         research_points2.remove(given_point)
-        #         research_points2.append(given_point)
-        #     else:
-        #         id += 1
-        #     nb += 1
-
-        # nb = 0
-        # id = 0
-
-        # while nb < len(research_points3):
-        #     given_point = research_points3[id]
-        #     count = 0
-        #     for point in research_points3:
-        #         if self.distance(point, given_point) < max_dist:
-        #             count += 1
-
-        #     if count <= min_neighbourg:
-        #         print(given_point, ' put at the end')
-        #         research_points3.remove(given_point)
-        #         research_points3.append(given_point)
-        #     else:
-        #         id += 1
-        #     nb += 1
-
-        # for i in range(len(research_points1)):
-        #     tmp_point = fctx.navigation.to_coords(
-        #         Vec2(research_points1[i][0], research_points1[i][1]))
-        #     if fctx.navigation.coords_in_range(tmp_point) and fctx.navigation.is_visitable(tmp_point):
-        #         research_points1[i] = tmp_point
-        #     else:
-        #         research_points1[i].pop()
         research_points = []
 
         for i in range(len(research_points1)):
@@ -377,14 +323,17 @@ class TargetSearch(State):
         index = 0
         while index < len(self.research_points):
             if not fcxt.navigation.is_visitable(self.research_points[index]):
-                logger.info(f"🐣Research point {self.research_points[index]} is not visitable")
+                logger.info(
+                    f"🐣Research point {self.research_points[index]} is not visitable"
+                )
                 self.research_points.pop(index)
             else:
                 index += 1
 
+
 class TargetCentering(State):
     def __init__(self):
-        self.target_pad = Vec2 | None
+        self.target_pad: Vec2 | None
         self.platform_x_found: bool = False
         self.platform_y_found: bool = False
         self.last_over_pad: bool = False
@@ -400,7 +349,6 @@ class TargetCentering(State):
         self.research_counter: int = 0
         self.change_axe: int = 0
         self.pad_width: float = 0.15
-        self.lateral_movement = 0.22
 
     def start(self, fctx: FlightContext):
         self.init_pos = fctx.navigation.global_position()
@@ -412,20 +360,22 @@ class TargetCentering(State):
             fctx.target_pad = self.target_pad
             return GoLower()
 
-    def set_target(self):
+        return None
+
+    def set_target(self, fctx: FlightContext):
         if self.research_axe == self.axe_X:
             if self.research_dir == self.axe_up:
-                vect = Vec2(self.lateral_movement, 0)
+                vect = Vec2(OSCILLATIONS_AMPLITUDE, 0)
             else:
-                vect = Vec2(-self.lateral_movement, 0)
+                vect = Vec2(-OSCILLATIONS_AMPLITUDE, 0)
 
         else:
             if self.research_dir == self.axe_up:
-                vect = Vec2(0, self.lateral_movement)
+                vect = Vec2(0, OSCILLATIONS_AMPLITUDE)
             else:
-                vect = Vec2(0, -self.lateral_movement)
+                vect = Vec2(0, -OSCILLATIONS_AMPLITUDE)
 
-        return self.init_pos + vect
+        fctx.trajectory.position = self.init_pos + vect
 
     def centering(self, fctx: FlightContext):
         """
@@ -439,7 +389,7 @@ class TargetCentering(State):
             (Boolean): Center found or not
         """
 
-        self.set_target()
+        self.set_target(fctx)
 
         if fctx.over_pad is not self.last_over_pad:
             self.update_platform_pos(fctx)
@@ -501,9 +451,13 @@ class TargetCentering(State):
         elif angle >= -5 * np.pi / 8 and angle < -3 * np.pi / 8:
             logger.info(f"⬅")
             if fctx.over_pad:
-                self.target_pad = Vec2(self.init_pos.x, self.init_pos.y + self.pad_width)
+                self.target_pad = Vec2(
+                    self.init_pos.x, self.init_pos.y + self.pad_width
+                )
             else:
-                self.target_pad = Vec2(self.init_pos.x, self.init_pos.y - self.pad_width)
+                self.target_pad = Vec2(
+                    self.init_pos.x, self.init_pos.y - self.pad_width
+                )
             self.platform_y_found = True
             self.change_axe = 0
             self.research_axe = self.axe_X
@@ -517,9 +471,13 @@ class TargetCentering(State):
         elif angle >= -np.pi / 8 and angle < np.pi / 8:
             logger.info(f"⬆")
             if fctx.over_pad:
-                self.target_pad = Vec2(self.init_pos.x + self.pad_width, self.init_pos.y)
+                self.target_pad = Vec2(
+                    self.init_pos.x + self.pad_width, self.init_pos.y
+                )
             else:
-                self.target_pad = Vec2(self.init_pos.x - self.pad_width, self.init_pos.y)
+                self.target_pad = Vec2(
+                    self.init_pos.x - self.pad_width, self.init_pos.y
+                )
             self.platform_x_found = True
             self.change_axe = 0
             self.research_axe = self.axe_Y
@@ -533,9 +491,13 @@ class TargetCentering(State):
         elif angle >= 3 * np.pi / 8 and angle < 5 * np.pi / 8:
             logger.info(f"➡")
             if fctx.over_pad:
-                self.target_pad = Vec2(self.init_pos.x, self.init_pos.y - self.pad_width)
+                self.target_pad = Vec2(
+                    self.init_pos.x, self.init_pos.y - self.pad_width
+                )
             else:
-                self.target_pad = Vec2(self.init_pos.x, self.init_pos.y + self.pad_width)
+                self.target_pad = Vec2(
+                    self.init_pos.x, self.init_pos.y + self.pad_width
+                )
             self.platform_y_found = True
             self.change_axe = 0
             self.research_axe = self.axe_X
@@ -549,9 +511,13 @@ class TargetCentering(State):
         elif angle >= 7 * np.pi / 8 or angle < -7 * np.pi / 8:
             logger.info(f"⬇")
             if fctx.over_pad:
-                self.target_pad = Vec2(self.init_pos.x - self.pad_width, self.init_pos.y)
+                self.target_pad = Vec2(
+                    self.init_pos.x - self.pad_width, self.init_pos.y
+                )
             else:
-                self.target_pad = Vec2(self.init_pos.x + self.pad_width, self.init_pos.y)
+                self.target_pad = Vec2(
+                    self.init_pos.x + self.pad_width, self.init_pos.y
+                )
             self.platform_x_found = True
             self.change_axe = 0
             self.research_axe = self.axe_Y
@@ -568,4 +534,9 @@ class ReturnHome(State):
         if fctx.is_near_target():
             return GoLower()
 
+        return None
+
+
+class Stop(State):
+    def next(self, _) -> State | None:
         return None

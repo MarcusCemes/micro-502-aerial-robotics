@@ -7,6 +7,7 @@ from loguru import logger
 from cflib.positioning.motion_commander import MotionCommander
 
 from .common import Context
+from .config import CRUISING_ALTITUDE
 from .flight_ctl import FlightController
 from .navigation import Navigation
 
@@ -30,7 +31,7 @@ class BiggerBrain:
 
         try:
             logger.info("🚁 Taking off")
-            mctl.take_off()
+            mctl.take_off(height=CRUISING_ALTITUDE)
 
             debug_counter = 0
 
