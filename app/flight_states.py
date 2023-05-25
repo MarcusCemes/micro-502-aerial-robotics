@@ -8,7 +8,7 @@ import numpy as np
 from loguru import logger
 
 from .common import Context
-from .config import ALTITUDE_ERROR, INITIAL_POSITION, POSITION_ERROR, MAX_SLOPE, LATERAL_MOVEMENT, POSITION_ERROR_PAD
+from .config import ALTITUDE_ERROR, INITIAL_POSITION, POSITION_ERROR, MAX_SLOPE, LATERAL_MOVEMENT, POSITION_ERROR_PAD, PAD_WIDTH
 from .navigation import Navigation
 from .utils.math import Vec2
 from .utils.timer import Timer
@@ -330,10 +330,8 @@ class TargetCentering(State):
 
         self.UP: Final = 0
         self.DOWN: Final = 1
-        self.MIDDLE: Final = 2
         self.research_dir: int = self.UP
-        self.target_point: int = self.MIDDLE
-        self.change_axe: bool = True
+        self.detection: bool = False
 
         self.X: Final = 0
         self.Y: Final = 1
@@ -341,16 +339,14 @@ class TargetCentering(State):
 
         self.research_counter: int = 0
         self.counter_axe: int = 0
-        self.pad_width: float = 0.10
 
     def start(self, fctx: FlightContext):
         fctx.scan = False
-        # Corriger retour à z
 
     def next(self, fctx: FlightContext) -> State | None:
 
         if self.platform_x_found and self.platform_y_found:
-            fctx.target_pad = self.target_pad # on enregistre la position du pad pour le retour
+            fctx.target_pad = self.target_pad                           # on enregistre la position du pad pour le retour
             fctx.trajectory.position = self.target_pad
             if fctx.is_near_target_pad():
                 logger.info(f"🐣Target pad found {self.target_pad}")
@@ -360,17 +356,14 @@ class TargetCentering(State):
 
     def set_target(self, fctx: FlightContext):
 
-        if self.target_point == self.MIDDLE:
-            vect = Vec2(0, 0)
-
-        elif self.research_axe == self.X:
-            if self.target_point == self.UP:
+        if self.research_axe == self.X:
+            if self.research_dir == self.UP:
                 vect = Vec2(LATERAL_MOVEMENT, 0)
             else:
                 vect = Vec2(-LATERAL_MOVEMENT, 0)
 
         else:
-            if self.target_point == self.UP:
+            if self.research_dir == self.UP:
                 vect = Vec2(0, LATERAL_MOVEMENT)
             else:
                 vect = Vec2(0, -LATERAL_MOVEMENT)
@@ -388,12 +381,13 @@ class TargetCentering(State):
             commande (List): control commande of the drone
             (Boolean): Center found or not
         """
-
-        self.set_target(fctx)
-
-        if self.target_point == self.MIDDLE and pad_detection(fctx):
+        
+        # Update pad position
+        if pad_detection(fctx) and self.detection:
             self.update_platform_pos(fctx)
-
+            self.detection = False
+            
+        # Update axis
         if self.counter_axe >= 2:
             if self.research_axe == self.X:
                 self.research_axe = self.Y
@@ -402,50 +396,42 @@ class TargetCentering(State):
 
             self.counter_axe = 0
             self.research_dir = self.UP
-            self.target_point = self.MIDDLE
             self.research_counter += 1
-
+            self.detection = False
+            
+        # Check if stuck
         if self.research_counter >= 5:
             logger.info(f"🔒 Stuck !!!")
             return TargetSearch()
-
-        elif self.research_axe == self.X:
+        
+        # Update target point
+        self.set_target(fctx)
+        
+        # Update direction
+        if self.research_axe == self.X:
             if self.research_dir == self.UP:
-                if self.target_point == self.MIDDLE:
-                    if fctx.is_near_target_pad():
-                        self.target_point = self.UP
-                else:
-                    if fctx.is_near_target_pad():
-                        self.counter_axe += 1
-                        self.target_point = self.MIDDLE    
-                        self.research_dir = self.DOWN       
+                if fctx.is_near_target_pad():
+                    self.counter_axe += 1
+                    self.research_dir = self.DOWN
+                    self.detection = True
+
             else:
-                if self.target_point == self.MIDDLE:
-                    if fctx.is_near_target_pad():
-                        self.target_point = self.DOWN
-                else:
-                    if fctx.is_near_target_pad():
-                        self.target_point = self.MIDDLE    
-                        self.research_dir = self.UP     
+                if fctx.is_near_target_pad():
+                    self.research_dir = self.UP
+                    self.detection = True
 
         elif self.research_axe == self.Y:
             if self.research_dir == self.UP:
-                if self.target_point == self.MIDDLE:
-                    if fctx.is_near_target_pad():
-                        self.target_point == self.UP
-                else:
-                    if fctx.is_near_target_pad():
-                        self.counter_axe += 1
-                        self.target_point = self.MIDDLE
-                        self.research_dir = self.DOWN
+                if fctx.is_near_target_pad():
+                    self.counter_axe += 1
+                    self.research_dir = self.DOWN
+                    self.detection = True
+
             else:
-                if self.target_point == self.MIDDLE:
-                    if fctx.is_near_target_pad():
-                        self.target_point == self.DOWN
-                else:
-                    if fctx.is_near_target_pad():
-                        self.target_point = self.MIDDLE
-                        self.research_dir = self.UP
+                if fctx.is_near_target_pad():
+                    self.research_dir = self.UP
+                    self.detection = True
+        
 
     def update_platform_pos(self, fctx: FlightContext):
         """
@@ -477,9 +463,9 @@ class TargetCentering(State):
         elif angle >= -5 * np.pi / 8 and angle < -3 * np.pi / 8:
             logger.info(f"⬅")
             if fctx.over_pad:
-                self.target_pad.y = fctx.navigation.global_position().y + self.pad_width
+                self.target_pad.y = fctx.navigation.global_position().y + PAD_WIDTH
             else:
-                self.target_pad.y = fctx.navigation.global_position().y - self.pad_width
+                self.target_pad.y = fctx.navigation.global_position().y - PAD_WIDTH
             self.platform_y_found = True
             self.counter_axe = 0
             self.research_axe = self.X
@@ -493,9 +479,9 @@ class TargetCentering(State):
         elif angle >= -np.pi / 8 and angle < np.pi / 8:
             logger.info(f"⬆")
             if fctx.over_pad:
-                self.target_pad.x = fctx.navigation.global_position().x + self.pad_width
+                self.target_pad.x = fctx.navigation.global_position().x + PAD_WIDTH
             else:
-                self.target_pad.x = fctx.navigation.global_position().x - self.pad_width
+                self.target_pad.x = fctx.navigation.global_position().x - PAD_WIDTH
             self.platform_x_found = True
             self.counter_axe = 0
             self.research_axe = self.Y
@@ -509,9 +495,9 @@ class TargetCentering(State):
         elif angle >= 3 * np.pi / 8 and angle < 5 * np.pi / 8:
             logger.info(f"➡")
             if fctx.over_pad:
-                self.target_pad.y = fctx.navigation.global_position().y - self.pad_width
+                self.target_pad.y = fctx.navigation.global_position().y - PAD_WIDTH
             else:
-                self.target_pad.y = fctx.navigation.global_position().y + self.pad_width
+                self.target_pad.y = fctx.navigation.global_position().y + PAD_WIDTH
             self.platform_y_found = True
             self.counter_axe = 0
             self.research_axe = self.X
@@ -525,9 +511,9 @@ class TargetCentering(State):
         elif angle >= 7 * np.pi / 8 or angle < -7 * np.pi / 8:
             logger.info(f"⬇")
             if fctx.over_pad:
-                self.target_pad.x = fctx.navigation.global_position().x - self.pad_width
+                self.target_pad.x = fctx.navigation.global_position().x - PAD_WIDTH
             else:
-                self.target_pad.x = fctx.navigation.global_position().x + self.pad_width
+                self.target_pad.x = fctx.navigation.global_position().x + PAD_WIDTH
             self.platform_x_found = True
             self.counter_axe = 0
             self.research_axe = self.Y

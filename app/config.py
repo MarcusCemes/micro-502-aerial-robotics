@@ -12,6 +12,7 @@ INITIAL_POSITION: Final = (2.5, 1.5)
 
 BOX_LIMIT: Final = 0.5
 PAD_HEIGHT: Final = 0.1
+PAD_WIDTH: Final = 0.10
 
 
 # == Flight == #
