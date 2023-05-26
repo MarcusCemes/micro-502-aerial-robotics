@@ -565,5 +565,6 @@ class TouchDown(State):
 
     def next(self, fctx: FlightContext) -> State | None:
         if fctx.is_near_target_altitude():
+            fctx.ctx.drone.comeback(fctx.target_pad.x, fctx.target_pad.y)
             return ReturnHome()
         return None

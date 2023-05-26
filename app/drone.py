@@ -107,6 +107,15 @@ class Drone:
         self.cf.param.set_value("kalman.resetEstimation", "1")
         await sleep(0.1)
         self.cf.param.set_value("kalman.resetEstimation", "0")
+        
+    async def comeback(self, start_x, start_y):
+        logger.debug("🗿Reseting Kalman estimator...")
+        
+        self.cf.param.set_value("kalman.initialX", f"{start_x:.2f}")
+        self.cf.param.set_value("kalman.initialY", f"{start_y:.2f}")
+        self.cf.param.set_value("kalman.resetEstimation", "1")
+        await sleep(0.1)
+        self.cf.param.set_value("kalman.resetEstimation", "0")
 
     # == Private == #
 
