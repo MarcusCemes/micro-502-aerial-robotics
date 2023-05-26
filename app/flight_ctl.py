@@ -94,8 +94,11 @@ class FlightController:
         else:
             # logger.info("🚧 No path found, going straight to target")
             pass
-
-        v = (next_waypoint - position).rotate((-s.yaw)).limit(VELOCITY_LIMIT)
+        
+        if self._fctx.ctx.drone.slow_speed:
+            v = (next_waypoint - position).rotate((-s.yaw)).limit(VELOCITY_LIMIT/2)
+        else:
+            v = (next_waypoint - position).rotate((-s.yaw)).limit(VELOCITY_LIMIT)
 
         delta_alt = t.altitude - s.z
 
@@ -115,6 +118,7 @@ class FlightController:
 
         if t.touch_down:
             mctl.land()
+            # regarder pour mettre la pos a 0 0 quand il décole pour qu'il reste fixe
             mctl.take_off()
             t.touch_down = False
 

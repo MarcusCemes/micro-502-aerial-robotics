@@ -49,6 +49,10 @@ class BiggerBrain:
                 self._ctx.outlet.broadcast(
                     {"type": "sensors", "data": asdict(self._ctx.sensors)}
                 )
+                if self._ctx.drone.first_landing:
+                    logger.debug("🚁 First landing")
+                    await self._ctx.drone.comeback(self._ctx.drone.new_pos.x, self._ctx.drone.new_pos.y)
+                    self._ctx.drone.first_landing = False
 
                 # s = self._ctx.sensors
                 # print(

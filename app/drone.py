@@ -50,6 +50,8 @@ class Drone:
         self._last_sensor_data: Sensors | None = None
         self._lock = threading.Lock()
         self._loop = get_running_loop()
+        self.first_landing = False 
+        self.slow_speed = False
 
     async def __aenter__(self) -> Drone:
         await self.connect()
@@ -109,11 +111,11 @@ class Drone:
         self.cf.param.set_value("kalman.resetEstimation", "0")
         
     async def comeback(self, start_x, start_y):
-        logger.debug("🗿Reseting Kalman estimator...")
+        logger.debug("⚙️Resetting position for second take off.")
         
         self.cf.param.set_value("kalman.initialX", f"{start_x:.2f}")
         self.cf.param.set_value("kalman.initialY", f"{start_y:.2f}")
-        self.cf.param.set_value("kalman.resetEstimation", "1")
+        self.cf.param.set_value("kalman.resetEstimation", "1") ##
         await sleep(0.1)
         self.cf.param.set_value("kalman.resetEstimation", "0")
 
