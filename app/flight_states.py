@@ -155,7 +155,17 @@ class GoForward(State):
             return ReturnHome()
 
         return None
+    
+    
+class Pause(State):
+    def start(self, fctx: FlightContext) -> None:
+        pass
+        
+        fctx.scan = False
 
+    def next(self, fctx: FlightContext) -> State | None:
+        fctx.trajectory.position = fctx.target_pad
+        return None
 
 # class GoBack(State):
 #     def start(self, fctx: FlightContext) -> None:
@@ -400,9 +410,9 @@ class TargetCentering(State):
             self.detection = False
             
         # Check if stuck
-        if self.research_counter >= 5:
+        if self.research_counter >= 3:
             logger.info(f"🔒 Stuck !!!")
-            return TargetSearch()
+            # return TargetSearch()
         
         # Update target point
         self.set_target(fctx)
@@ -462,10 +472,7 @@ class TargetCentering(State):
         # Left
         elif angle >= -5 * np.pi / 8 and angle < -3 * np.pi / 8:
             logger.info(f"⬅")
-            if fctx.over_pad:
-                self.target_pad.y = fctx.navigation.global_position().y + PAD_WIDTH
-            else:
-                self.target_pad.y = fctx.navigation.global_position().y - PAD_WIDTH
+            self.target_pad.y = fctx.navigation.global_position().y + PAD_WIDTH
             self.platform_y_found = True
             self.counter_axe = 0
             self.research_axe = self.X
@@ -478,10 +485,7 @@ class TargetCentering(State):
         # Front
         elif angle >= -np.pi / 8 and angle < np.pi / 8:
             logger.info(f"⬆")
-            if fctx.over_pad:
-                self.target_pad.x = fctx.navigation.global_position().x + PAD_WIDTH
-            else:
-                self.target_pad.x = fctx.navigation.global_position().x - PAD_WIDTH
+            self.target_pad.x = fctx.navigation.global_position().x + PAD_WIDTH
             self.platform_x_found = True
             self.counter_axe = 0
             self.research_axe = self.Y
@@ -494,10 +498,7 @@ class TargetCentering(State):
         # Right
         elif angle >= 3 * np.pi / 8 and angle < 5 * np.pi / 8:
             logger.info(f"➡")
-            if fctx.over_pad:
-                self.target_pad.y = fctx.navigation.global_position().y - PAD_WIDTH
-            else:
-                self.target_pad.y = fctx.navigation.global_position().y + PAD_WIDTH
+            self.target_pad.y = fctx.navigation.global_position().y - PAD_WIDTH
             self.platform_y_found = True
             self.counter_axe = 0
             self.research_axe = self.X
@@ -510,13 +511,10 @@ class TargetCentering(State):
         # Back
         elif angle >= 7 * np.pi / 8 or angle < -7 * np.pi / 8:
             logger.info(f"⬇")
-            if fctx.over_pad:
-                self.target_pad.x = fctx.navigation.global_position().x - PAD_WIDTH
-            else:
-                self.target_pad.x = fctx.navigation.global_position().x + PAD_WIDTH
+            self.target_pad.x = fctx.navigation.global_position().x - PAD_WIDTH
             self.platform_x_found = True
             self.counter_axe = 0
-            self.research_axe = self.Y
+            self.research_axe = self.Y 
 
 
 class ReturnHome(State):
@@ -527,7 +525,7 @@ class ReturnHome(State):
 
     def next(self, fctx: FlightContext) -> State | None:
         if fctx.is_near_target():
-            return GoLower()
+            return TargetCentering()
 
         return None
 

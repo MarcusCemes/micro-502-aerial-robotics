@@ -6,13 +6,13 @@ CACHE_DIR: Final = "./cache"
 LOG_PERIOD_MS: Final = 50
 URI: Final = "radio://0/10/2M/E7E7E7E711"
 
-INITIAL_POSITION: Final = (2.5, 1.5)
+INITIAL_POSITION: Final = (2.0, 1.5)
 
 # == Environment == #
 
 BOX_LIMIT: Final = 0.5
 PAD_HEIGHT: Final = 0.1
-PAD_WIDTH: Final = 0.10
+PAD_WIDTH: Final = 0.05
 
 
 # == Flight == #
