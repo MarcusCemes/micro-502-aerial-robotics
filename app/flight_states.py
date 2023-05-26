@@ -8,7 +8,7 @@ import numpy as np
 from loguru import logger
 
 from .common import Context
-from .config import ALTITUDE_ERROR, INITIAL_POSITION, POSITION_ERROR, MAX_SLOPE, LATERAL_MOVEMENT, POSITION_ERROR_PAD, PAD_WIDTH
+from .config import ALTITUDE_ERROR, INITIAL_POSITION, POSITION_ERROR, MAX_SLOPE, LATERAL_MOVEMENT, POSITION_ERROR_PAD, PAD_WIDTH, LINE_TARGET_SEARCH
 from .navigation import Navigation
 from .utils.math import Vec2
 from .utils.timer import Timer
@@ -44,6 +44,7 @@ class Trajectory:
     orientation: float = 0.0
     position: Vec2 = field(default_factory=Vec2)
 
+    touch_down: bool = False
 
 @dataclass
 class FlightContext:
@@ -69,8 +70,14 @@ class FlightContext:
             return self.is_near_position(self.path[0], error)
 
     def is_near_target(self, error=POSITION_ERROR) -> bool:
+        logger.debug(f"True position: {self.get_position()}")
+        logger.debug(f"Target position: {self.trajectory.position}")
         return self.is_near_position(self.trajectory.position, error)
     
+    def has_crossed_the_line(self) -> bool:
+        if self.ctx.sensors.x > LINE_TARGET_SEARCH:
+            return True
+            
     def is_near_target_pad(self, error=POSITION_ERROR_PAD) -> bool:
         return self.is_near_position(self.trajectory.position, error)
 
@@ -120,11 +127,11 @@ class Takeoff(State):
 class Cross(State):
     def start(self, fctx: FlightContext) -> None:
         logger.info("🛫🏢🏢 Crossing")
-        fctx.trajectory.position.x = 3.5
+        fctx.trajectory.position = Vec2(4.5, 1.5)
         fctx.scan = True
 
     def next(self, fctx: FlightContext) -> State | None:
-        if fctx.is_near_target():
+        if fctx.has_crossed_the_line():
             return TargetSearch()
     
 class Scan(State):
@@ -226,6 +233,7 @@ class TargetSearch(State):
             fctx.target_pad = fctx.navigation.global_position()
             logger.debug(f"🤣First detetion {fctx.target_pad}")
             return TargetCentering(fctx)
+        return None
 
     def compute_target_map(self, fctx: FlightContext):
         research_points1 = [
@@ -360,7 +368,7 @@ class TargetCentering(State):
             fctx.trajectory.position = self.target_pad
             if fctx.is_near_target_pad():
                 logger.info(f"🐣Target pad found {self.target_pad}")
-                return GoLower()
+                return TouchDown()
         else:
             return self.centering(fctx)
 
@@ -520,12 +528,15 @@ class TargetCentering(State):
 class ReturnHome(State):
     def start(self, fctx: FlightContext):
         assert fctx.home_pad is not None
-
+        print(f"🏠 Returning home to {fctx.home_pad}")
+        #fctx.ctx.drone =  fctx.target_pad  # set absolute position of drone
         fctx.trajectory.position = fctx.home_pad
+        print(f'positiooooooooooooon return home: {fctx.ctx.sensors.x}, {fctx.ctx.sensors.y}')
 
     def next(self, fctx: FlightContext) -> State | None:
+        logger.info(f"🏠 Returning home to {fctx.trajectory.position}")
         if fctx.is_near_target():
-            return TargetCentering()
+            return TargetCentering(fctx)
 
         return None
 
@@ -542,3 +553,17 @@ def pad_detection(fctx: FlightContext):
     if slope > MAX_SLOPE:
         logger.info(f"🎯 Detected pad!")
         return True
+    
+
+class TouchDown(State):
+    def start(self, fctx: FlightContext):
+        logger.info(f"👌 Touching down")
+        fctx.trajectory.touch_down = True
+        fctx.trajectory.altitude = 0.5
+        fctx.trajectory.position = fctx.target_pad
+        print(f'positiooooooooooooon touch down: {fctx.ctx.sensors.x}, {fctx.ctx.sensors.y}')
+
+    def next(self, fctx: FlightContext) -> State | None:
+        if fctx.is_near_target_altitude():
+            return ReturnHome()
+        return None

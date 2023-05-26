@@ -92,8 +92,8 @@ class FlightController:
         if self._fctx.path is not None and len(self._fctx.path) > 0:
             next_waypoint = self._fctx.path[0]
         else:
-            logger.info("🚧 No path found, going straight to target")
-
+            # logger.info("🚧 No path found, going straight to target")
+            pass
 
         v = (next_waypoint - position).rotate((-s.yaw)).limit(VELOCITY_LIMIT)
 
@@ -112,6 +112,11 @@ class FlightController:
                 -ANGULAR_VELOCITY_LIMIT_DEG,
                 ANGULAR_VELOCITY_LIMIT_DEG,
             )
+
+        if t.touch_down:
+            mctl.land()
+            mctl.take_off()
+            t.touch_down = False
 
         # if self._fctx.ctx.debug_tick:
         #     logger.debug(
