@@ -3,10 +3,11 @@ from typing import Final
 # == Crazyflie configuration == #
 
 CACHE_DIR: Final = "./cache"
-LOG_PERIOD_MS: Final = 50
+RANGE_LOG_PERIOD_MS: Final = 100
+STAB_LOG_PERIOD_MS: Final = 50
 URI: Final = "radio://0/10/2M/E7E7E7E711"
 
-INITIAL_POSITION: Final = (2.5, 1.5)
+INITIAL_POSITION: Final = (3.0, 1.5)
 
 # == Environment == #
 
@@ -25,13 +26,14 @@ POSITION_ERROR_PAD: Final = 0.1
 HOME_PAD_ERROR: Final = 0.6
 
 PAD_THRESHOLD: Final = 0.1
-MAX_SLOPE: Final = 0.012
+MAX_SLOPE: Final = 0.014
 
-VELOCITY_LIMIT: Final = 0.2
+VELOCITY_LIMIT: Final = 0.3
 VELOCITY_LIMIT_SLOW: Final = 0.2
+VELOCITY_LIMIT_FAST: Final = 0.4
 VERTICAL_VELOCITY_LIMIT: Final = 0.1
 ANGULAR_VELOCITY_LIMIT_DEG: Final = 90.0
-ANGULAR_SCAN_VELOCITY_DEG: Final = 45.0
+ANGULAR_SCAN_VELOCITY_DEG: Final = 65.0
 
 
 # == Navigation == #
