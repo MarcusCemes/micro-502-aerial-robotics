@@ -11,7 +11,7 @@ from .config import (
     PAD_HEIGHT,
     VERTICAL_VELOCITY_LIMIT,
     VELOCITY_LIMIT_SLOW,
-    VELOCITY_LIMIT_FAST
+    VELOCITY_LIMIT_FAST,
 )
 from .flight_states import Boot, FlightContext, State, Stop
 from .navigation import Navigation
@@ -34,7 +34,6 @@ class FlightController:
         return self.next()
 
     def next(self) -> bool:
-
         next = self._state.next(self._fctx)
 
         if self._fctx.ctx.debug_tick:

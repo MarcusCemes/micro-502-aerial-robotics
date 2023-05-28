@@ -5,6 +5,7 @@ from asyncio import Event, Future, get_event_loop, get_running_loop, sleep
 from dataclasses import replace
 from enum import Enum
 from typing import Any
+import numpy as np
 
 from loguru import logger
 
@@ -40,8 +41,8 @@ STAB_SENSORS = [
 
 RANGE_SENSORS = [
     ("range.zrange", "uint16_t"),
-    ("stateEstimate.roll", "float"), 
-    ("stateEstimate.pitch", "float"),
+    ("stabilizer.roll", "float"), 
+    ("stabilizer.pitch", "float"),
     ("stateEstimate.vx", "float"),
     ("stateEstimate.vy", "float")
 ]
@@ -173,8 +174,9 @@ class Drone:
 
             case LogNames.Range:
                 self._sensors.down = float(mm_to_m(data["range.zrange"]))
-                self._sensors.roll = float(deg_to_rad(data["stateEstimate.roll"]))
-                self._sensors.pitch = float(deg_to_rad(data["stateEstimate.pitch"]))
+                self._sensors.down_hist = np.append(self._sensors.down_hist[1:], data["range.zrange"])
+                self._sensors.roll = float(deg_to_rad(data["stabilizer.roll"]))
+                self._sensors.pitch = float(deg_to_rad(data["stabilizer.pitch"]))
                 self._sensors.vx = float(data["stateEstimate.vx"])
                 self._sensors.vy = float(data["stateEstimate.vy"])
 

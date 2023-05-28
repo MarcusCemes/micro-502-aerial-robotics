@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+import numpy as np
 
 Coords = tuple[int, int]
 
@@ -18,4 +19,4 @@ class Sensors:
     left: float = 0
     right: float = 0
     down: float = 0
-
+    down_hist = np.zeros(50)
