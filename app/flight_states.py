@@ -45,7 +45,8 @@ from .utils.timer import Timer
 # Stop = 17
 
 
-def pad_detection(fctx: FlightContext):  # changer pour ne pas faire de dérivée
+def pad_detection(fctx: FlightContext):
+    logger.debug(f"last z is {fctx.ctx.drone.last_z}, z position: {fctx.ctx.sensors.z}")
     if (
         fctx.ctx.drone.last_z is not None
         and fctx.ctx.drone.last_z - fctx.ctx.sensors.z > MAX_SLOPE
@@ -54,6 +55,18 @@ def pad_detection(fctx: FlightContext):  # changer pour ne pas faire de dérivé
         fctx.ctx.drone.last_z = fctx.ctx.sensors.z
         return True
     fctx.ctx.drone.last_z = fctx.ctx.sensors.z
+    return False
+
+
+def pad_detection_down(fctx: FlightContext):
+    if (
+        fctx.ctx.drone.last_z is not None
+        and fctx.ctx.drone.last_z - fctx.ctx.sensors.z < -MAX_SLOPE
+    ):
+        logger.info(f"🎯 Detected pad down !")
+        # fctx.ctx.drone.last_z = fctx.ctx.sensors.z
+        return True
+    # fctx.ctx.drone.last_z = fctx.ctx.sensors.z
     return False
 
 
@@ -337,7 +350,7 @@ class TargetCentering(State):
         self.research_counter: int = 0
         self.counter_axe: int = 0
 
-        self.update_platform_pos(fctx)
+        self.update_platform_pos(self.UP, fctx)
         fctx.ctx.drone.slow_speed = True
         logger.debug("🚧 Slow speed mode")
 
@@ -384,7 +397,10 @@ class TargetCentering(State):
 
         # Update pad position
         if pad_detection(fctx) and self.detection:
-            self.update_platform_pos(fctx)
+            self.update_platform_pos(self.UP, fctx)
+            self.detection = False
+        elif pad_detection_down(fctx) and self.detection:
+            self.update_platform_pos(self.DOWN, fctx)
             self.detection = False
 
         # Update axis
@@ -432,7 +448,7 @@ class TargetCentering(State):
                     self.research_dir = self.UP
                     self.detection = True
 
-    def update_platform_pos(self, fctx: FlightContext):
+    def update_platform_pos(self, direcition, fctx: FlightContext):
         """
         Update the position of the platform from the actual position
         and the direction of the movement.
@@ -461,7 +477,10 @@ class TargetCentering(State):
         # Left
         elif angle >= -5 * np.pi / 8 and angle < -3 * np.pi / 8:
             logger.info(f"⬅")
-            self.target_pad.y = fctx.navigation.global_position().y + PAD_WIDTH / 2
+            if direcition == self.UP:
+                self.target_pad.y = fctx.navigation.global_position().y + PAD_WIDTH / 2
+            else:
+                self.target_pad.y = fctx.navigation.global_position().y - PAD_WIDTH / 2
             self.platform_y_found = True
             self.counter_axe = 0
             self.research_axe = self.X
@@ -474,7 +493,10 @@ class TargetCentering(State):
         # Front
         elif angle >= -np.pi / 8 and angle < np.pi / 8:
             logger.info(f"⬆")
-            self.target_pad.x = fctx.navigation.global_position().x + PAD_WIDTH / 2
+            if direcition == self.UP:
+                self.target_pad.x = fctx.navigation.global_position().x + PAD_WIDTH / 2
+            else:
+                self.target_pad.x = fctx.navigation.global_position().x - PAD_WIDTH / 2
             self.platform_x_found = True
             self.counter_axe = 0
             self.research_axe = self.Y
@@ -487,7 +509,10 @@ class TargetCentering(State):
         # Right
         elif angle >= 3 * np.pi / 8 and angle < 5 * np.pi / 8:
             logger.info(f"➡")
-            self.target_pad.y = fctx.navigation.global_position().y - PAD_WIDTH / 2
+            if direcition == self.UP:
+                self.target_pad.y = fctx.navigation.global_position().y - PAD_WIDTH / 2
+            else:
+                self.target_pad.y = fctx.navigation.global_position().y + PAD_WIDTH / 2
             self.platform_y_found = True
             self.counter_axe = 0
             self.research_axe = self.X
@@ -500,27 +525,35 @@ class TargetCentering(State):
         # Back
         elif angle >= 7 * np.pi / 8 or angle < -7 * np.pi / 8:
             logger.info(f"⬇")
-            self.target_pad.x = fctx.navigation.global_position().x - PAD_WIDTH / 2
+            if direcition == self.UP:
+                self.target_pad.x = fctx.navigation.global_position().x - PAD_WIDTH / 2
+            else:
+                self.target_pad.x = fctx.navigation.global_position().x + PAD_WIDTH / 2
             self.platform_x_found = True
             self.counter_axe = 0
             self.research_axe = self.Y
 
 
 class TouchDown(State):
+    def __init__(self) -> None:
+        self.touched = False
+
     def start(self, fctx: FlightContext):
         logger.info(f"👌 Touching down")
-        fctx.trajectory.touch_down = True
-        fctx.trajectory.altitude = 0.5
+        fctx.trajectory.altitude = 0.0
         fctx.trajectory.position = fctx.target_pad
 
     def next(self, fctx: FlightContext) -> State | None:
-        fctx.trajectory.position = Vec2(0, 0)
         # fctx.trajectory.position = fctx.target_pad
-        if fctx.is_near_target_altitude() and not fctx.trajectory.touch_down:
-            fctx.ctx.drone.first_landing = True
-            fctx.ctx.drone.new_pos = fctx.target_pad
-            fctx.ctx.drone.comeback(fctx.target_pad.x, fctx.target_pad.y)
+        if fctx.is_near_target_altitude() and not self.touched:
+            fctx.trajectory.altitude = 0.0
+            self.touched = True
+
+        if fctx.is_near_target_altitude() and self.touched:
+            # fctx.ctx.drone.new_pos = fctx.target_pad
+            # fctx.ctx.drone.comeback(fctx.target_pad.x, fctx.target_pad.y)
             return ReturnHome()
+
         return None
 
 
@@ -544,9 +577,88 @@ class ReturnHome(State):
             fctx.is_near_target_pad()
         ):  # or (pad_detection(fctx) and fctx.is_near_home()):
             fctx.target_pad = fctx.home_pad
-            return Pause(fctx)
+            return HomeSearch()
 
         return None
+
+
+class HomeSearch(State):
+    def __init__(self):
+        self.research_points = []
+        self.index = 0
+
+    def start(self, fctx: FlightContext):
+        fctx.scan = True
+        # compute target map
+        self.compute_target_map(fctx)
+        # set target
+        fctx.trajectory.position = fctx.navigation.to_position(
+            self.research_points[self.index]
+        )
+
+    def next(self, fctx: FlightContext):
+        self.update_research_point(fctx)
+        if self.index == len(self.research_points):
+            # logger.info("No target found")
+            return Stop()
+        if fctx.is_near_target_pad():
+            # move to next target point
+            # print("no home found on this point")
+            self.index = self.index + 1
+        fctx.trajectory.position = fctx.navigation.to_position(
+            self.research_points[self.index]
+        )
+
+        if pad_detection(fctx):
+            fctx.target_pad = fctx.navigation.global_position()
+            logger.debug(f"🤣First detetion {fctx.target_pad}")
+            return HomeCentering(
+                fctx
+            )  ####################################🫦👌👈💋😩🥵💦💦💥♋♋        return None
+
+    def compute_target_map(self, fctx: FlightContext):
+        research_points_temp = {
+            (fctx.home_pad.x + 0.5, fctx.home_pad.y),
+            (fctx.home_pad.x + 0.25, fctx.home_pad.y),
+            (fctx.home_pad.x, fctx.home_pad.y),
+            (fctx.home_pad.x + -0.25, fctx.home_pad.y),
+            (fctx.home_pad.x + -0.5, fctx.home_pad.y),
+            (fctx.home_pad.x + -0.5, fctx.home_pad.y - 0.25),
+            (fctx.home_pad.x + -0.25, fctx.home_pad.y - 0.25),
+            (fctx.home_pad.x + -0, fctx.home_pad.y - 0.25),
+            (fctx.home_pad.x + 0.25, fctx.home_pad.y - 0.25),
+            (fctx.home_pad.x + 0.5, fctx.home_pad.y - 0.25),
+            (fctx.home_pad.x + 0.5, fctx.home_pad.y + 0.25),
+            (fctx.home_pad.x + 0.25, fctx.home_pad.y + 0.25),
+            (fctx.home_pad.x + 0.0, fctx.home_pad.y + 0.25),
+            (fctx.home_pad.x - 0.25, fctx.home_pad.y + 0.25),
+            (fctx.home_pad.x - 0.5, fctx.home_pad.y + 0.25),
+        }
+
+        research_points = []
+
+        for i in range(len(research_points_temp)):
+            point = fctx.navigation.to_coords(
+                Vec2(research_points_temp[i][0], research_points_temp[i][1])
+            )
+            # logger.debug("Point: {}".format(point))
+            if fctx.navigation.coords_in_range(point) and fctx.navigation.is_visitable(
+                point
+            ):
+                research_points.append(point)
+        print(research_points)
+        self.research_points = research_points
+
+    def update_research_point(self, fcxt: FlightContext):
+        index = 0
+        while index < len(self.research_points):
+            if not fcxt.navigation.is_visitable(self.research_points[index]):
+                logger.info(
+                    f"🐣Research point {self.research_points[index]} is not visitable"
+                )
+                self.research_points.pop(index)
+            else:
+                index += 1
 
 
 class GoForward(State):
@@ -589,4 +701,5 @@ class GoLower(State):
 
 class Stop(State):
     def next(self, _) -> State | None:
+        return None
         return None

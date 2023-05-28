@@ -114,11 +114,11 @@ class FlightController:
                 ANGULAR_VELOCITY_LIMIT_DEG,
             )
 
-        if t.touch_down:
-            mctl.land()
-            # regarder pour mettre la pos a 0 0 quand il décole pour qu'il reste fixe
-            mctl.take_off()
-            t.touch_down = False
+        # if t.touch_down:
+        #     mctl.land()
+        #     # regarder pour mettre la pos a 0 0 quand il décole pour qu'il reste fixe
+        #     mctl.take_off()
+        #     t.touch_down = False
 
         # if self._fctx.ctx.debug_tick:
         #     logger.debug(
