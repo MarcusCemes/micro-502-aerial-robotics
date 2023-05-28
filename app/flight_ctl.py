@@ -100,7 +100,7 @@ class FlightController:
 
         delta_alt = t.altitude - s.z
 
-        if self._fctx.over_pad:
+        if self._fctx.over_pad:     
             delta_alt -= PAD_HEIGHT
 
         vz = clip(delta_alt, -VERTICAL_VELOCITY_LIMIT, VERTICAL_VELOCITY_LIMIT)
