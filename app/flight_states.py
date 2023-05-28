@@ -17,6 +17,7 @@ from .config import (
     POSITION_ERROR_PAD,
     PAD_WIDTH,
     LINE_TARGET_SEARCH,
+    HOME_PAD_ERROR,
 )
 from .navigation import Navigation
 from .utils.math import Vec2
@@ -42,6 +43,18 @@ from .utils.timer import Timer
 # ReturnHome = 15
 # LandHome = 16
 # Stop = 17
+
+
+def pad_detection(fctx: FlightContext):  # changer pour ne pas faire de dérivée
+    if (
+        fctx.ctx.drone.last_z is not None
+        and fctx.ctx.drone.last_z - fctx.ctx.sensors.z > MAX_SLOPE
+    ):
+        logger.info(f"🎯 Detected pad!")
+        fctx.ctx.drone.last_z = fctx.ctx.sensors.z
+        return True
+    fctx.ctx.drone.last_z = fctx.ctx.sensors.z
+    return False
 
 
 # == Types == #
@@ -90,6 +103,9 @@ class FlightContext:
     def is_near_target_pad(self, error=POSITION_ERROR_PAD) -> bool:
         return self.is_near_position(self.trajectory.position, error)
 
+    def is_near_home(self, error=HOME_PAD_ERROR) -> bool:
+        return self.is_near_position(self.trajectory.position, error)
+
     def is_near_position(self, position: Vec2, error=POSITION_ERROR) -> bool:
         return (self.get_position() - position).abs() < error
 
@@ -112,6 +128,22 @@ class State(Protocol):
 
 
 # == States == #
+
+
+class Scan(State):
+    def __init__(self):
+        self._timer = Timer()
+
+    def start(self, fctx: FlightContext) -> None:
+        fctx.scan = True
+        self._timer.reset()
+
+    def next(self, fctx: FlightContext) -> State | None:
+        if self._timer.is_elapsed(10.0):
+            fctx.scan = False
+            return Stop()
+
+        return None
 
 
 class Boot(State):
@@ -143,76 +175,6 @@ class Cross(State):
     def next(self, fctx: FlightContext) -> State | None:
         if fctx.has_crossed_the_line():
             return TargetSearch()
-
-
-class Scan(State):
-    def __init__(self):
-        self._timer = Timer()
-
-    def start(self, fctx: FlightContext) -> None:
-        fctx.scan = True
-        self._timer.reset()
-
-    def next(self, fctx: FlightContext) -> State | None:
-        if self._timer.is_elapsed(10.0):
-            fctx.scan = False
-            return Stop()
-
-        return None
-
-
-class GoForward(State):
-    def start(self, fctx: FlightContext) -> None:
-        fctx.trajectory.position.x = 2.0
-        # fctx.trajectory.orientation = pi
-
-        fctx.scan = True
-
-    def next(self, fctx: FlightContext) -> State | None:
-        if fctx.is_near_target():
-            return ReturnHome()
-
-        return None
-
-
-class Pause(State):
-    def start(self, fctx: FlightContext) -> None:
-        pass
-
-        fctx.scan = False
-
-    def next(self, fctx: FlightContext) -> State | None:
-        fctx.trajectory.position = fctx.target_pad
-        return None
-
-
-# class GoBack(State):
-#     def start(self, fctx: FlightContext) -> None:
-#         fctx.trajectory.position = Vec2()
-
-#     def next(self, fctx: FlightContext) -> State | None:
-#         if fctx.is_near_target():
-#             return Stop()
-
-#         return None
-
-
-class GoLower(State):
-    def start(self, fctx: FlightContext):
-        fctx.trajectory.altitude = 0.1
-        fctx.trajectory.orientation = 0.0
-        fctx.trajectory.position = fctx.target_pad
-
-    def next(self, fctx: FlightContext) -> State | None:
-        if fctx.is_near_target_altitude():
-            return Stop()
-
-        return None
-
-
-class Stop(State):
-    def next(self, _) -> State | None:
-        return None
 
 
 class TargetSearch(State):
@@ -357,24 +319,28 @@ class TargetCenteringEasy(State):
 
 class TargetCentering(State):
     def __init__(self, fctx: FlightContext):
-        self.target_pad = fctx.target_pad
-        self.platform_x_found: bool = False
-        self.platform_y_found: bool = False
-
         self.UP: Final = 0
         self.DOWN: Final = 1
-        self.research_dir: int = self.UP
-        self.detection: bool = False
 
         self.X: Final = 0
         self.Y: Final = 1
-        self.research_axe: int = self.X
 
+    def start(self, fctx: FlightContext):
+        self.target_pad = fctx.target_pad
+
+        self.platform_x_found: bool = False
+        self.platform_y_found: bool = False
+        self.detection: bool = False
+
+        self.research_axe: int = self.X
+        self.research_dir: int = self.UP
         self.research_counter: int = 0
         self.counter_axe: int = 0
 
-    def start(self, fctx: FlightContext):
         self.update_platform_pos(fctx)
+        fctx.ctx.drone.slow_speed = True
+        logger.debug("🚧 Slow speed mode")
+
         fctx.scan = False
 
     def next(self, fctx: FlightContext) -> State | None:
@@ -495,7 +461,7 @@ class TargetCentering(State):
         # Left
         elif angle >= -5 * np.pi / 8 and angle < -3 * np.pi / 8:
             logger.info(f"⬅")
-            self.target_pad.y = fctx.navigation.global_position().y + PAD_WIDTH
+            self.target_pad.y = fctx.navigation.global_position().y + PAD_WIDTH / 2
             self.platform_y_found = True
             self.counter_axe = 0
             self.research_axe = self.X
@@ -508,7 +474,7 @@ class TargetCentering(State):
         # Front
         elif angle >= -np.pi / 8 and angle < np.pi / 8:
             logger.info(f"⬆")
-            self.target_pad.x = fctx.navigation.global_position().x + PAD_WIDTH
+            self.target_pad.x = fctx.navigation.global_position().x + PAD_WIDTH / 2
             self.platform_x_found = True
             self.counter_axe = 0
             self.research_axe = self.Y
@@ -521,7 +487,7 @@ class TargetCentering(State):
         # Right
         elif angle >= 3 * np.pi / 8 and angle < 5 * np.pi / 8:
             logger.info(f"➡")
-            self.target_pad.y = fctx.navigation.global_position().y - PAD_WIDTH
+            self.target_pad.y = fctx.navigation.global_position().y - PAD_WIDTH / 2
             self.platform_y_found = True
             self.counter_axe = 0
             self.research_axe = self.X
@@ -534,15 +500,33 @@ class TargetCentering(State):
         # Back
         elif angle >= 7 * np.pi / 8 or angle < -7 * np.pi / 8:
             logger.info(f"⬇")
-            self.target_pad.x = fctx.navigation.global_position().x - PAD_WIDTH
+            self.target_pad.x = fctx.navigation.global_position().x - PAD_WIDTH / 2
             self.platform_x_found = True
             self.counter_axe = 0
             self.research_axe = self.Y
 
 
+class TouchDown(State):
+    def start(self, fctx: FlightContext):
+        logger.info(f"👌 Touching down")
+        fctx.trajectory.touch_down = True
+        fctx.trajectory.altitude = 0.5
+        fctx.trajectory.position = fctx.target_pad
+
+    def next(self, fctx: FlightContext) -> State | None:
+        fctx.trajectory.position = Vec2(0, 0)
+        # fctx.trajectory.position = fctx.target_pad
+        if fctx.is_near_target_altitude() and not fctx.trajectory.touch_down:
+            fctx.ctx.drone.first_landing = True
+            fctx.ctx.drone.new_pos = fctx.target_pad
+            fctx.ctx.drone.comeback(fctx.target_pad.x, fctx.target_pad.y)
+            return ReturnHome()
+        return None
+
+
 class ReturnHome(State):
     def start(self, fctx: FlightContext):
-        fctx.scan = False
+        fctx.scan = True
         fctx.ctx.drone.slow_speed = False
         assert fctx.home_pad is not None
         print(f"🏠 Returning home to {fctx.home_pad}")
@@ -556,43 +540,53 @@ class ReturnHome(State):
 
     def next(self, fctx: FlightContext) -> State | None:
         logger.info(f"🏠 Returning home to {fctx.trajectory.position}")
-        if fctx.is_near_target():
-            return TargetCentering(fctx)
+        if (
+            fctx.is_near_target_pad()
+        ):  # or (pad_detection(fctx) and fctx.is_near_home()):
+            fctx.target_pad = fctx.home_pad
+            return Pause(fctx)
 
         return None
 
 
-def pad_detection(fctx: FlightContext):
-    # pad detection
-    slope, _ = np.polyfit(np.arange(len(fctx.z_hist)), fctx.z_hist, 1)
+class GoForward(State):
+    def start(self, fctx: FlightContext) -> None:
+        fctx.trajectory.position.x = 2.0
+        # fctx.trajectory.orientation = pi
 
-    # if fctx.ctx.debug_tick:
-    # logger.debug(f"Over pad {fctx.over_pad}")
-    # logger.debug(f"Slope {slope}")
-
-    # il detecte des pads partout !!
-
-    if slope > MAX_SLOPE:
-        logger.info(f"🎯 Detected pad!")
-        return True
-
-
-class TouchDown(State):
-    def start(self, fctx: FlightContext):
-        logger.info(f"👌 Touching down")
-        fctx.trajectory.touch_down = True
-        fctx.trajectory.altitude = 0.5
-        fctx.trajectory.position = fctx.target_pad
-        # print(
-        #     f"positiooooooooooooon touch down: {fctx.ctx.sensors.x}, {fctx.ctx.sensors.y}"
-        # )
+        fctx.scan = True
 
     def next(self, fctx: FlightContext) -> State | None:
-        fctx.trajectory.position = Vec2(0,0)
-        # fctx.trajectory.position = fctx.target_pad
-        if fctx.is_near_target_altitude() and not fctx.trajectory.touch_down:
-            fctx.ctx.drone.first_landing = True
-            fctx.ctx.drone.new_pos = fctx.target_pad
-            fctx.ctx.drone.comeback(fctx.target_pad.x, fctx.target_pad.y)
+        if fctx.is_near_target():
             return ReturnHome()
+
+        return None
+
+
+class Pause(State):
+    def start(self, fctx: FlightContext) -> None:
+        pass
+
+        fctx.scan = False
+
+    def next(self, fctx: FlightContext) -> State | None:
+        fctx.trajectory.position = fctx.target_pad
+        return None
+
+
+class GoLower(State):
+    def start(self, fctx: FlightContext):
+        fctx.trajectory.altitude = 0.1
+        fctx.trajectory.orientation = 0.0
+        fctx.trajectory.position = fctx.target_pad
+
+    def next(self, fctx: FlightContext) -> State | None:
+        if fctx.is_near_target_altitude():
+            return Stop()
+
+        return None
+
+
+class Stop(State):
+    def next(self, _) -> State | None:
         return None

@@ -11,6 +11,7 @@ from .config import (
     VELOCITY_LIMIT,
     PAD_HEIGHT,
     VERTICAL_VELOCITY_LIMIT,
+    VELOCITY_LIMIT_SLOW,
 )
 from .flight_states import Boot, FlightContext, State, Stop
 from .navigation import Navigation
@@ -25,10 +26,7 @@ class FlightController:
     def __init__(self, ctx: Context, navigation: Navigation) -> None:
         self._state = Boot()
 
-        self._fctx = FlightContext(
-            ctx,
-            navigation
-        )
+        self._fctx = FlightContext(ctx, navigation)
         self.z_hist = np.zeros(3)
         self.range_down_list = np.zeros(500)
 
@@ -46,7 +44,7 @@ class FlightController:
         if self._fctx.ctx.debug_tick:
             plt.figure("Range down")
             plt.plot(np.arange(len(self.range_down_list)), self.range_down_list)
-            plt.savefig('output/range_down.png')
+            plt.savefig("output/range_down.png")
 
         if next is not None:
             if type(next) == self._state:
@@ -94,9 +92,9 @@ class FlightController:
         else:
             # logger.info("🚧 No path found, going straight to target")
             pass
-        
+
         if self._fctx.ctx.drone.slow_speed:
-            v = (next_waypoint - position).rotate((-s.yaw)).limit(VELOCITY_LIMIT/2)
+            v = (next_waypoint - position).rotate((-s.yaw)).limit(VELOCITY_LIMIT_SLOW)
         else:
             v = (next_waypoint - position).rotate((-s.yaw)).limit(VELOCITY_LIMIT)
 
@@ -111,7 +109,7 @@ class FlightController:
 
         if not self._fctx.scan:
             va = clip(
-                rad_to_deg(normalise_angle(s.yaw-t.orientation)),
+                rad_to_deg(normalise_angle(s.yaw - t.orientation)),
                 -ANGULAR_VELOCITY_LIMIT_DEG,
                 ANGULAR_VELOCITY_LIMIT_DEG,
             )

@@ -52,6 +52,7 @@ class Drone:
         self._loop = get_running_loop()
         self.first_landing = False 
         self.slow_speed = False
+        self.last_z = None
 
     async def __aenter__(self) -> Drone:
         await self.connect()
