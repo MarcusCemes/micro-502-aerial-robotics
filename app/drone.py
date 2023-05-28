@@ -1,14 +1,8 @@
 from __future__ import annotations
 
 import threading
-from asyncio import (
-    AbstractEventLoop,
-    Event,
-    Future,
-    get_event_loop,
-    get_running_loop,
-    sleep,
-)
+from asyncio import Event, Future, get_event_loop, get_running_loop, sleep
+from dataclasses import replace
 from enum import Enum
 from typing import Any
 
@@ -17,26 +11,34 @@ from loguru import logger
 from cflib.crazyflie import Crazyflie
 from cflib.crazyflie.log import LogConfig
 
-from .config import CACHE_DIR, INITIAL_POSITION, LOG_PERIOD_MS, URI
+from .config import (
+    CACHE_DIR,
+    INITIAL_POSITION,
+    RANGE_LOG_PERIOD_MS,
+    STAB_LOG_PERIOD_MS,
+    URI,
+)
 from .types import Sensors
-from .utils.math import deg_to_rad, mm_to_m
+from .utils.math import Vec2, deg_to_rad, mm_to_m
 
 
 class LogNames(Enum):
     Stabiliser = "stab"
+    Range = "range"
 
 
-SENSORS = [
+STAB_SENSORS = [
     ("stateEstimate.x", "float"),
     ("stateEstimate.y", "float"),
     ("stateEstimate.z", "float"),
     ("stabilizer.yaw", "float"),
-    # ("stabilizer.pitch", "float"),
-    # ("stabilizer.roll", "float"),
     ("range.front", "uint16_t"),
     ("range.back", "uint16_t"),
     ("range.left", "uint16_t"),
     ("range.right", "uint16_t"),
+]
+
+RANGE_SENSORS = [
     ("range.zrange", "uint16_t"),
 ]
 
@@ -47,12 +49,15 @@ class Drone:
 
         self._connection_future: Future[Any] | None = None
         self._data_event = data_event
-        self._last_sensor_data: Sensors | None = None
+        self._last_sensor_data: Sensors = Sensors()
         self._lock = threading.Lock()
         self._loop = get_running_loop()
-        self.first_landing = False 
+
+        self._last_position = Vec2(*INITIAL_POSITION)
+        self._sensors = Sensors()
+
         self.slow_speed = False
-        self.last_z = None
+        self.first_landing = False
 
     async def __aenter__(self) -> Drone:
         await self.connect()
@@ -83,50 +88,46 @@ class Drone:
     def configure_logging(self) -> None:
         assert self.cf.is_connected()
 
-        cfg = self._generate_logging_config()
+        for name, sensors, period in [
+            (LogNames.Stabiliser, STAB_SENSORS, STAB_LOG_PERIOD_MS),
+            (LogNames.Range, RANGE_SENSORS, RANGE_LOG_PERIOD_MS),
+        ]:
+            cfg = self._generate_logging_config(name, sensors, period)
 
-        self.cf.log.add_config(cfg)
+            self.cf.log.add_config(cfg)
 
-        cfg.data_received_cb.add_callback(self._on_sensor_data)
-        cfg.error_cb.add_callback(self._on_sensor_error)
+            cfg.data_received_cb.add_callback(self._on_sensor_data)
+            cfg.error_cb.add_callback(self._on_sensor_error)
 
-        cfg.start()
+            cfg.start()
 
     def disconnect(self) -> None:
         if self.cf.is_connected():
             self.cf.close_link()
             logger.info("📶 Link closed")
 
-    def get_last_sensor_reading(self) -> Sensors | None:
+    def get_last_sensor_reading(self) -> Sensors:
         with self._lock:
             return self._last_sensor_data
 
-    async def reset_estimator(self) -> None:
-        logger.debug("🗿Reseting Kalman estimator...")
+    async def reset_estimator(self, pos: Vec2 = Vec2(*INITIAL_POSITION)) -> None:
+        logger.debug("🗿 Resetting Kalman estimator...")
 
-        (x, y) = INITIAL_POSITION
-        self.cf.param.set_value("kalman.initialX", f"{x:.2f}")
-        self.cf.param.set_value("kalman.initialY", f"{y:.2f}")
+        self.cf.param.set_value("kalman.initialX", f"{pos.x:.2f}")
+        self.cf.param.set_value("kalman.initialY", f"{pos.y:.2f}")
         self.cf.param.set_value("kalman.resetEstimation", "1")
-        await sleep(0.1)
-        self.cf.param.set_value("kalman.resetEstimation", "0")
-        
-    async def comeback(self, start_x, start_y):
-        logger.debug("⚙️Resetting position for second take off.")
-        
-        self.cf.param.set_value("kalman.initialX", f"{start_x:.2f}")
-        self.cf.param.set_value("kalman.initialY", f"{start_y:.2f}")
-        self.cf.param.set_value("kalman.resetEstimation", "1") ##
         await sleep(0.1)
         self.cf.param.set_value("kalman.resetEstimation", "0")
 
     # == Private == #
 
-    def _generate_logging_config(self) -> LogConfig:
-        cfg = LogConfig(name=LogNames.Stabiliser, period_in_ms=LOG_PERIOD_MS)
+    def _generate_logging_config(
+        self, name: LogNames, sensors: list[tuple[str, str]], period
+    ) -> LogConfig:
+        cfg = LogConfig(name=name, period_in_ms=period)
 
-        for name, type in SENSORS:
-            cfg.add_variable(name, type)
+        for var, type in sensors:
+            cfg.add_variable(var, type)
 
         return cfg
 
@@ -157,32 +158,24 @@ class Drone:
     def _on_sensor_data(self, _, data, cfg: LogConfig) -> None:
         match cfg.name:
             case LogNames.Stabiliser:
-                if self._last_sensor_data is not None:
-                    previous_x = self._last_sensor_data.x
-                    previous_y = self._last_sensor_data.y
-                else:
-                    previous_x : float = 0
-                    previous_y : float = 0
-                reading = Sensors(                    
-                    x=data["stateEstimate.x"],
-                    y=data["stateEstimate.y"],
-                    z=data["stateEstimate.z"],
-                    vx=data["stateEstimate.x"]-previous_x,
-                    vy=data["stateEstimate.y"]-previous_y,
-                    back=float(mm_to_m(data["range.back"])),
-                    front=float(mm_to_m(data["range.front"])),
-                    left=float(mm_to_m(data["range.left"])),
-                    right=float(mm_to_m(data["range.right"])),
-                    down=float(mm_to_m(data["range.zrange"])),
-                    # pitch=deg_to_rad(data["stabilizer.pitch"]),
-                    # roll=deg_to_rad(data["stabilizer.roll"]),
-                    yaw=deg_to_rad(data["stabilizer.yaw"]),
-                )
+                self._sensors.x = data["stateEstimate.x"]
+                self._sensors.y = data["stateEstimate.y"]
+                self._sensors.z = data["stateEstimate.z"]
+                self._sensors.vx = data["stateEstimate.x"] - self._last_position.x
+                self._sensors.vy = data["stateEstimate.y"] - self._last_position.y
+                self._sensors.back = float(mm_to_m(data["range.back"]))
+                self._sensors.front = float(mm_to_m(data["range.front"]))
+                self._sensors.left = float(mm_to_m(data["range.left"]))
+                self._sensors.right = float(mm_to_m(data["range.right"]))
+                self._sensors.yaw = deg_to_rad(data["stabilizer.yaw"])
 
-                with self._lock:
-                    self._last_sensor_data = reading
+            case LogNames.Range:
+                self._sensors.down = float(mm_to_m(data["range.zrange"]))
 
-                self._loop.call_soon_threadsafe(self._data_event.set)
+        with self._lock:
+            self._last_sensor_data = replace(self._sensors)
+
+        self._loop.call_soon_threadsafe(self._data_event.set)
 
     def _on_sensor_error(self, cfg: LogConfig, msg: str):
         logger.warning(f"Sensor logging error ({cfg.name}): {msg}")

@@ -1,20 +1,21 @@
 from enum import Enum
 from math import sqrt
+from time import time
 from typing import Annotated, Literal
 
 import cv2  # type: ignore
 import numpy as np
 import numpy.typing as npt
 from loguru import logger
-from matplotlib import pyplot as plt  # type: ignore
 
 from .common import Context
-from .config import MAP_PX_PER_M, MAP_SIZE, OPTIMISE_PATH, RANGE_THRESHOLD
+from .config import DEBUG_FILES, MAP_PX_PER_M, MAP_SIZE, OPTIMISE_PATH, RANGE_THRESHOLD
 from .path_finding.dijkstra import Dijkstra
 from .path_finding.grid_graph import GridGraph
 from .types import Coords
 from .utils.debug import export_image
-from .utils.math import Vec2, clip, raytrace, rbf_kernel
+from .utils.math import Vec2, circular_kernel, clip, raytrace
+from .utils.parallel import LazyWorker
 
 DTYPE = np.float32
 
@@ -36,7 +37,7 @@ OCCUPATION_THRESHOLD = 3
 UNIT_SENSOR_VECTORS: Matrix2x4 = np.array([[1, 0, -1, 0], [0, 1, 0, -1]], dtype=DTYPE)
 
 KERNEL_SIZE = 15
-KERNEL_SIGMA = 2.5
+KERNEL_SIGMA = 3.0
 
 
 class Sensor(Enum):
@@ -57,12 +58,31 @@ class Navigation:
         self.map = np.zeros(size, dtype=MAP_DTYPE)
         self.size = size
 
-        self.field_gen = FieldGenerator()
-        self.field = self.field_gen.next(self.map)
+        field_gen = FieldGenerator()
+        self.field = field_gen.next(self.map)
+
+        self.field_worker = LazyWorker(field_gen.next)
+        self.field_worker.start()
+
+        self.field_worker.try_send(self.map)
+
+        self.path_worker = LazyWorker(compute_path)
+        self.path_worker.start()
 
         self.high_sensitivity = False
 
+    def stop(self):
+        self.field_worker.stop()
+        self.path_worker.stop()
+
     def update(self):
+        # start_time = time()
+
+        field = self.field_worker.collect()
+
+        if field is not None:
+            self.field = field
+
         loc_detections = np.multiply(self.read_range_readings(), UNIT_SENSOR_VECTORS)
         loc_proj_detections = np.multiply(self.reduction_factors(), loc_detections)
         relative_detections = np.dot(self.yaw_rotation_matrix(), loc_proj_detections)
@@ -73,28 +93,28 @@ class Navigation:
         if self._ctx.debug_tick:
             export_image("map", self.map, cmap="RdYlGn_r")
 
-    def save(self) -> Map:
-        return self.map.copy()
+        self.field_worker.try_send(self.map)
 
-    def restore(self, map: Map) -> None:
-        self.map = map
-        self.field = self.field_gen.next(self.map)
+        # end_time = time()
+        # duration = end_time - start_time
+
+        # if duration > 1e-3:
+        #     logger.warning(f"Navigation update took {1e3 * duration:.2f} ms")
 
     def compute_path(self, start: Coords, end: Coords) -> list[Coords] | None:
-        self.field = self.field_gen.next(self.map)
+        # start_time = time()
+        self.path_worker.try_send((self.field, start, end))
 
-        if self._ctx.debug_tick:
-            export_image("field", self.field, cmap="gray")
+        path = self.path_worker.collect()
 
-        graph = GridGraph(self.field)
-        algo = Dijkstra(graph, optimise=OPTIMISE_PATH)
+        if path is not None:
+            self._ctx.outlet.broadcast({"type": "path", "data": path})
 
-        path = algo.find_path(start, end)
+        # end_time = time()
+        # duration = end_time - start_time
 
-        if self._ctx.debug_tick and path is not None:
-            self.plot_and_save_path(path)
-
-        self._ctx.outlet.broadcast({"type": "path", "data": path})
+        # if duration > 1e-3:
+        #     logger.warning(f"Path computation took {1e3 * duration:.2f} ms")
 
         return path
 
@@ -196,31 +216,28 @@ class Navigation:
 
         return distance / MAP_PX_PER_M
 
-    def plot_and_save_path(self, path: list[Coords]) -> None:
-        plt.figure("path")
-        plt.xlim(0, self.map.shape[0])
-        plt.ylim(0, self.map.shape[1])
-
-        for i, j in path:
-            plt.plot(
-                i,
-                j,
-                marker="o",
-                markersize=2,
-                markeredgecolor="red",
-            )
-    
-        plt.savefig("output/path.png")
-
 
 class FieldGenerator:
     def __init__(self):
         super().__init__()
 
-        self.kernel = rbf_kernel(KERNEL_SIZE, KERNEL_SIGMA)
-        export_image("kernel", self.kernel, cmap="gray")
+        self._kernel = circular_kernel(KERNEL_SIZE)
+
+        if DEBUG_FILES:
+            export_image("kernel", self._kernel, cmap="gray")
 
     def next(self, map: Map) -> Field:
         field = np.zeros(map.shape, dtype=np.int32)
         field[map > 0] = 1
-        return cv2.filter2D(field, -1, self.kernel)
+        return cv2.filter2D(field, -1, self._kernel)
+
+
+def compute_path(params: tuple[npt.NDArray, Coords, Coords]) -> list[Coords]:
+    (field, start, end) = params
+
+    graph = GridGraph(field)
+    algo = Dijkstra(graph, optimise=OPTIMISE_PATH)
+
+    path = algo.find_path(start, end)
+
+    return path if path is not None else []

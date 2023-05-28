@@ -1,10 +1,9 @@
-from asyncio import Queue, QueueEmpty, create_task, wait
+from asyncio import Queue, QueueEmpty, create_task, sleep, wait
 from dataclasses import asdict
 from enum import Enum
+from time import time
 
 from loguru import logger
-
-from cflib.positioning.motion_commander import MotionCommander
 
 from .common import Context
 from .flight_ctl import FlightController
@@ -26,11 +25,8 @@ class BiggerBrain:
         self._last_execution = 0.0
 
     async def run(self, cmds: Queue[Command]) -> None:
-        mctl = MotionCommander(self._ctx.drone.cf)
-
         try:
             logger.info("🚁 Taking off")
-            mctl.take_off()
 
             debug_counter = 0
 
@@ -41,55 +37,57 @@ class BiggerBrain:
                     debug_counter = 0
                     self._ctx.debug_tick = True
 
-                if self._ctx.new_data.is_set():
-                    logger.warning("🐢 Too slow, missed sensor data events!")
+                # Free the event loop to allow sensors to be updated
+                await sleep(1e-3)
+
+                # if self._ctx.new_data.is_set():
+                #     logger.warning("🐢 Too slow, missed sensor data events!")
 
                 maybe_cmd = await self._wait_for_event(cmds)
+                self._ctx.new_data.clear()
+
+                # start_time = time()
+                self._update_sensors()
 
                 self._ctx.outlet.broadcast(
                     {"type": "sensors", "data": asdict(self._ctx.sensors)}
                 )
-                if self._ctx.drone.first_landing:
-                    logger.debug("🚁 First landing")
-                    await self._ctx.drone.comeback(self._ctx.drone.new_pos.x, self._ctx.drone.new_pos.y)
-                    self._ctx.drone.first_landing = False
 
-                # s = self._ctx.sensors
-                # print(
-                #     f"f {s.front:.2f} l {s.left:.2f} b {s.back:.2f} r {s.right:.2f} y {s.yaw:.2f}"
-                # )
+                # if self._ctx.drone.first_landing:
+                #     logger.debug("🚁 First landing")
+                #     await self._ctx.drone.reset_estimator(self._ctx.drone.new_pos)
+                #     self._ctx.drone.first_landing = False
 
                 if maybe_cmd is not None:
-                    self._handle_cmd(maybe_cmd, mctl)
+                    await self._handle_cmd(maybe_cmd)
                     return
 
-                self._ctx.new_data.clear()
-
-                self._update_sensors()
                 self._nav.update()
 
                 if self._flight_ctl.update():
                     break
 
-                self._flight_ctl.apply_flight_command(mctl)
+                self._flight_ctl.apply_flight_command()
+
+                # end_time = time()
+                # duration = end_time - start_time
+
+                # if duration >= 20e-3:
+                #     logger.warning(f"Brain took {1e3 * duration:.2f} ms")
 
                 self._ctx.debug_tick = False
 
             logger.info("🚁 Landing")
-            mctl.land()
 
         finally:
-            if mctl._thread is not None:
-                mctl._thread.stop()
-                self._ctx.drone.cf.commander.send_stop_setpoint()
+            self._ctx.drone.cf.commander.send_stop_setpoint()
+            self._nav.stop()
 
     # == Private == #
 
     def _update_sensors(self) -> None:
         reading = self._ctx.drone.get_last_sensor_reading()
-
-        if reading is not None:
-            self._ctx.sensors = reading
+        self._ctx.sensors = reading
 
     async def _wait_for_event(self, cmds: Queue[Command]) -> Command | None:
         try:
@@ -115,11 +113,12 @@ class BiggerBrain:
 
         return None
 
-    def _handle_cmd(self, cmd: Command, mctl: MotionCommander) -> None:
+    async def _handle_cmd(self, cmd: Command) -> None:
         match cmd:
             case Command.Land:
                 logger.info("🤚 Emergency landing")
-                mctl.land()
+                self._ctx.drone.cf.commander.send_hover_setpoint(0.0, 0.0, 0.0, 0.0)
+                await sleep(0.5)
                 logger.info("👍 Landed")
 
             case Command.Stop:

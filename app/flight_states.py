@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
-from typing import Protocol, Final
+from enum import Enum
+from typing import Final, Protocol
 
 import numpy as np
 from loguru import logger
@@ -10,64 +11,44 @@ from loguru import logger
 from .common import Context
 from .config import (
     ALTITUDE_ERROR,
-    INITIAL_POSITION,
-    POSITION_ERROR,
-    MAX_SLOPE,
-    LATERAL_MOVEMENT,
-    POSITION_ERROR_PAD,
-    PAD_WIDTH,
-    LINE_TARGET_SEARCH,
+    CRUISING_ALTITUDE,
     HOME_PAD_ERROR,
+    INITIAL_POSITION,
+    LATERAL_MOVEMENT,
+    LINE_TARGET_SEARCH,
+    PAD_WIDTH,
+    POSITION_ERROR,
+    POSITION_ERROR_PAD,
 )
 from .navigation import Navigation
 from .utils.math import Vec2
 from .utils.timer import Timer
 
-# == Simulation states == #:
-
-# Boot = 0
-# SpinUp = 1
-# HomeTakeOff = 2
-# ToSearchZone = 3
-# ScanHigh = 4
-# DescendToScanLow = 5
-# ScanLow = 6
-# RegainAltitude = 7
-# FlyToDetection = 8
-# GoToPadDetection = 9
-# FindBound = 10
-# FlyToDestination = 11
-# LandDestination = 12
-# WaitAtDestination = 13
-# TakeOffAgain = 14
-# ReturnHome = 15
-# LandHome = 16
-# Stop = 17
+# class PadEdge(Enum):
+#     Enter = 1
+#     Nothing = 2
+#     Leave = 3
 
 
-def pad_detection(fctx: FlightContext):
-    logger.debug(f"last z is {fctx.ctx.drone.last_z}, z position: {fctx.ctx.sensors.z}")
-    if (
-        fctx.ctx.drone.last_z is not None
-        and fctx.ctx.drone.last_z - fctx.ctx.sensors.z > MAX_SLOPE
-    ):
-        logger.info(f"🎯 Detected pad!")
-        fctx.ctx.drone.last_z = fctx.ctx.sensors.z
-        return True
-    fctx.ctx.drone.last_z = fctx.ctx.sensors.z
-    return False
+# def pad_detection(fctx: FlightContext) -> PadEdge:
+#     current_z = fctx.ctx.sensors.z
 
+#     try:
+#         if fctx.last_z is not None:
+#             if fctx.last_z - current_z > MAX_SLOPE:
+#                 logger.info(f"🎯 Detected pad!")
+#                 fctx.over_pad = True
+#                 return PadEdge.Enter
 
-def pad_detection_down(fctx: FlightContext):
-    if (
-        fctx.ctx.drone.last_z is not None
-        and fctx.ctx.drone.last_z - fctx.ctx.sensors.z < -MAX_SLOPE
-    ):
-        logger.info(f"🎯 Detected pad down !")
-        # fctx.ctx.drone.last_z = fctx.ctx.sensors.z
-        return True
-    # fctx.ctx.drone.last_z = fctx.ctx.sensors.z
-    return False
+#             elif fctx.last_z - current_z < -MAX_SLOPE:
+#                 logger.info(f"👋 Leaving pad")
+#                 fctx.over_pad = False
+#                 return PadEdge.Leave
+
+#         return PadEdge.Nothing
+
+#     finally:
+#         fctx.last_z = current_z
 
 
 # == Types == #
@@ -88,13 +69,12 @@ class FlightContext:
 
     trajectory: Trajectory = field(default_factory=Trajectory)
 
+    detect_pad: bool = False
     home_pad: Vec2 | None = None
-    pad_detection: bool = False
     over_pad: bool = True
     path: list[Vec2] | None = None
     scan: bool = False
     target_pad: Vec2 | None = None
-    z_hist = np.zeros(3)
 
     # == Sensors == #
 
@@ -169,11 +149,12 @@ class Boot(State):
 
 class Takeoff(State):
     def start(self, fctx: FlightContext) -> None:
-        fctx.trajectory.altitude = 0.5
+        fctx.trajectory.altitude = CRUISING_ALTITUDE
 
     def next(self, fctx: FlightContext) -> State | None:
         if fctx.is_near_target_altitude():
-            fctx.pad_detection = True
+            fctx.detect_pad = True
+            fctx.over_pad = True
             return Cross()
 
         return None
@@ -181,13 +162,14 @@ class Takeoff(State):
 
 class Cross(State):
     def start(self, fctx: FlightContext) -> None:
-        logger.info("🛫🏢🏢 Crossing")
         fctx.trajectory.position = Vec2(4.5, 1.5)
         fctx.scan = True
 
     def next(self, fctx: FlightContext) -> State | None:
         if fctx.has_crossed_the_line():
             return TargetSearch()
+
+        return None
 
 
 class TargetSearch(State):
@@ -217,7 +199,7 @@ class TargetSearch(State):
             self.research_points[self.index]
         )
 
-        if pad_detection(fctx):
+        if fctx.over_pad:
             fctx.target_pad = fctx.navigation.global_position()
             logger.debug(f"🤣First detetion {fctx.target_pad}")
             return TargetCentering(fctx)
@@ -274,7 +256,6 @@ class TargetSearch(State):
             point = fctx.navigation.to_coords(
                 Vec2(research_points1[i][0], research_points1[i][1])
             )
-            # logger.debug("Point: {}".format(point))
             if fctx.navigation.coords_in_range(point) and fctx.navigation.is_visitable(
                 point
             ):
@@ -284,7 +265,6 @@ class TargetSearch(State):
             point = fctx.navigation.to_coords(
                 Vec2(research_points2[i][0], research_points2[i][1])
             )
-            # logger.debug("Point: {}".format(point))
             if fctx.navigation.coords_in_range(point) and fctx.navigation.is_visitable(
                 point
             ):
@@ -294,12 +274,11 @@ class TargetSearch(State):
             point = fctx.navigation.to_coords(
                 Vec2(research_points3[i][0], research_points3[i][1])
             )
-            # logger.debug("Point: {}".format(point))
             if fctx.navigation.coords_in_range(point) and fctx.navigation.is_visitable(
                 point
             ):
                 research_points.append(point)
-        print(research_points)
+
         self.research_points = research_points
 
     def update_research_point(self, fcxt: FlightContext):
@@ -339,6 +318,7 @@ class TargetCentering(State):
         self.Y: Final = 1
 
     def start(self, fctx: FlightContext):
+        self.last_pad_state = fctx.over_pad
         self.target_pad = fctx.target_pad
 
         self.platform_x_found: bool = False
@@ -396,12 +376,13 @@ class TargetCentering(State):
         """
 
         # Update pad position
-        if pad_detection(fctx) and self.detection:
-            self.update_platform_pos(self.UP, fctx)
-            self.detection = False
-        elif pad_detection_down(fctx) and self.detection:
+        if self.last_pad_state and not fctx.over_pad:
             self.update_platform_pos(self.DOWN, fctx)
             self.detection = False
+        elif not self.last_pad_state and fctx.over_pad:
+            self.update_platform_pos(self.UP, fctx)
+            self.detection = False
+        self.last_pad_state = fctx.over_pad
 
         # Update axis
         if self.counter_axe >= 2:
@@ -701,5 +682,4 @@ class GoLower(State):
 
 class Stop(State):
     def next(self, _) -> State | None:
-        return None
         return None

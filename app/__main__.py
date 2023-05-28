@@ -15,8 +15,8 @@ from traceback import print_stack
 from typing import Final
 
 from loguru import logger
-from app.server import Server
 
+from app.server import Server
 from app.utils.getch import Getch
 from cflib.crtp import init_drivers
 
@@ -65,14 +65,14 @@ async def init():
 
         ctx = Context(drone, data_event)
 
-        # server = Server(ctx)
-        # stop_server = Event()
-        # server_task = create_task(server.run(stop_server))
+        server = Server(ctx)
+        stop_server = Event()
+        server_task = create_task(server.run(stop_server))
 
         await BiggerBrain(ctx).run(cmds)
 
-        # stop_server.set()
-        # await server_task
+        stop_server.set()
+        await server_task
 
 
 class StopWatchdog(threading.Thread):
