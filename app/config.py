@@ -18,7 +18,7 @@ LINE_TARGET_SEARCH: Final = 3.5
 
 # == Flight == #
 
-CRUISING_ALTITUDE: Final = 0.25
+CRUISING_ALTITUDE: Final = 0.4
 
 ALTITUDE_ERROR: Final = 0.15
 POSITION_ERROR: Final = 0.2

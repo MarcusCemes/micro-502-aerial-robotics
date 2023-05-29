@@ -8,6 +8,7 @@ from typing import Any
 import numpy as np
 import matplotlib.pyplot as plt
 import cv2
+import scipy
 
 from loguru import logger
 
@@ -23,7 +24,7 @@ from .config import (
     SEARCHING_PX_PER_M,
 )
 from .types import Sensors
-from .utils.math import Vec2, deg_to_rad, mm_to_m
+from .utils.math import Vec2, deg_to_rad, mm_to_m, rbf_kernel, circular_kernel
 from .utils.debug import export_image
 
 
@@ -74,6 +75,23 @@ class ProbabilityMap:
             )
         except IndexError:
             pass
+    
+    def two_peaks(self): 
+        camel_threshold = 22
+        min_number_px = 4
+
+        labels, num = scipy.ndimage.measurements.label((self.probability_map>camel_threshold) * self.probability_map)
+
+        number_of_peaks = 0
+        for i in range(1,num,1):
+            # print(np.sum((labels == i)*1))
+            if np.sum(labels == i) >= min_number_px:
+                number_of_peaks += 1
+
+        if number_of_peaks >= 2:
+            return True
+        
+        return False
 
     def to_coords(self, position: Vec2):
         px_x, px_y = self.size
@@ -99,36 +117,36 @@ class ProbabilityMap:
         return map
 
     def find_mean_position(self) -> Vec2:
-        map = self.process_map()
+        # map = self.process_map()
 
-        x_coords, y_coords = np.meshgrid(
-            range(map.shape[1]),
-            range(map.shape[0]),
-        )
+        # x_coords, y_coords = np.meshgrid(
+        #     range(map.shape[1]),
+        #     range(map.shape[0]),
+        # )
 
-        if np.sum(map) == 0:
-            logger.info('😭 No pad found')
-            position = self.to_position((4.0, 1.5))
-        else:
-            mean_x = np.sum(x_coords * map) / np.sum(map)
-            mean_y = np.sum(y_coords * map) / np.sum(map)
+        # if np.sum(map) == 0:
+        #     logger.info('😭 No pad found')
+        #     position = self.to_position((4.0, 1.5))
+        # else:
+        #     mean_x = np.sum(x_coords * map) / np.sum(map)
+        #     mean_y = np.sum(y_coords * map) / np.sum(map)
 
-            position = self.to_position((mean_y, mean_x))
+        #     position = self.to_position((mean_y, mean_x))
 
-            # kernel = rbf_kernel(31, 6.0) - 0.5 * rbf_kernel(31, 3.5)
-            # export_image("kernel_pad", kernel)
+        kernel = rbf_kernel(31, 6.0) - 0.5 * rbf_kernel(31, 3.5)
+        export_image("kernel_pad", kernel)
 
-            # np.save("probability_map", self.probability_map)
-            # conv = cv2.filter2D(self.probability_map, -1, kernel)
-            # export_image("probability_map_conv", conv)
+        np.save("probability_map", self.probability_map)
+        conv = cv2.filter2D(self.probability_map, -1, kernel)
+        export_image("probability_map_conv", conv)
 
-            # conv = cv2.filter2D(conv, -1, circular_kernel(25))
-            # export_image("probability_map_conv_2", conv)
+        conv = cv2.filter2D(conv, -1, circular_kernel(25))
+        export_image("probability_map_conv_2", conv)
 
-            # max = np.argmax(conv, axis=None)
-            # (x, y) = np.unravel_index(max, conv.shape)
-            # position = self.to_position((int(x), int(y)))
-            # logger.info(f"Found max index at {(x, y)}, position {position}")
+        max = np.argmax(conv, axis=None)
+        (x, y) = np.unravel_index(max, conv.shape)
+        position = self.to_position((int(x), int(y)))
+        logger.info(f"Found max index at {(x, y)}, position {position}")
 
         return position
 
