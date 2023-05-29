@@ -50,5 +50,5 @@ LATERAL_MOVEMENT: Final = 0.5
 # == Miscellaneous == #
 
 DEBUG_FILES: Final = True
-SERVER_ENABLED: Final = True
+SERVER_ENABLED: Final = False
 SERVER_PORT: Final = 8080

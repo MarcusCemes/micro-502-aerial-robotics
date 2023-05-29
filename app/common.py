@@ -8,6 +8,12 @@ from .utils.observable import Broadcast
 
 @dataclass
 class Context:
+    """
+    Shared context that is used to coordinate different modules without any
+    inter-module dependencies. Provides access to the Drone class, latest
+    sensor data and other minor shared resources.
+    """
+
     drone: Drone
     new_data: Event
 

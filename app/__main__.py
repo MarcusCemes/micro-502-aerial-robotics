@@ -79,7 +79,13 @@ async def init():
 
 
 class StopWatchdog(threading.Thread):
-    def __init__(self, timeout=3):
+    """
+    Thread that runs in the background and makes sure that the process
+    quits within a specified timeout after the main function has returned,
+    even if there are still some dangling threads.
+    """
+
+    def __init__(self, timeout=3.0):
         super().__init__()
 
         self.daemon = True
@@ -101,6 +107,11 @@ class StopWatchdog(threading.Thread):
 
 
 class CommandReader(threading.Thread):
+    """
+    Thread that reads key commands from stdin using blocking calls and
+    transmits them to the event loop using a Queue for processing.
+    """
+
     def __init__(self, cmds: Queue[Command]):
         super().__init__()
 
@@ -130,31 +141,6 @@ class CommandReader(threading.Thread):
 
     def _send_cmd(self, cmd: Command) -> None:
         run_coroutine_threadsafe(self._queue.put(cmd), self._loop)
-
-
-def read_char():
-    try:
-        # for Windows-based systems
-        import msvcrt
-
-        return msvcrt.getch()
-
-    except ImportError:
-        # for POSIX-based systems (with termios & tty support)
-        import sys
-        import termios
-        import tty
-
-        fd = sys.stdin.fileno()
-        oldSettings = termios.tcgetattr(fd)  # type: ignore
-
-        try:
-            tty.setcbreak(fd)  # type: ignore
-            answer = sys.stdin.read(1)
-        finally:
-            termios.tcsetattr(fd, termios.TCSADRAIN, oldSettings)  # type: ignore
-
-        return answer
 
 
 if __name__ == "__main__":

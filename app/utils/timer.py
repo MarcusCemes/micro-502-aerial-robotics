@@ -9,4 +9,8 @@ class Timer:
         self._time = time()
 
     def is_elapsed(self, duration: float) -> bool:
+        """
+        Returns:
+            True if the timer has waited duration
+        """
         return time() - self._time >= duration

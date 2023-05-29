@@ -16,6 +16,13 @@ EQ_TOLERANCE = 1e-6
 
 
 class Vec2:
+    """
+    A 2D vector.
+
+    Attributes:
+        x: The x component.
+        y: The y component.
+    """
     x: float = 0.0
     y: float = 0.0
 
@@ -171,6 +178,7 @@ def rbf_kernel(size: int, sigma: float, integer=True) -> npt.NDArray:
 
 
 def circular_kernel(size: int) -> npt.NDArray:
+    """Returns a 2D circular kernel array."""
     return cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (size, size))
 
 

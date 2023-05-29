@@ -1,11 +1,16 @@
 from dataclasses import dataclass
-import numpy as np
+
 
 Coords = tuple[int, int]
 
 
 @dataclass
 class Sensors:
+    """
+    Dataclass containing all available sensor data transmitted from
+    the drone.
+    """
+
     x: float = 0.0
     y: float = 0.0
     z: float = 0.0
@@ -14,8 +19,8 @@ class Sensors:
     pitch: float = 0.0
     roll: float = 0.0
     yaw: float = 0.0
-    front: float = 0
-    back: float = 0
-    left: float = 0
-    right: float = 0
-    down: float = 0
+    front: float = 0.0
+    back: float = 0.0
+    left: float = 0.0
+    right: float = 0.0
+    down: float = 0.0

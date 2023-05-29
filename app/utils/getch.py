@@ -1,7 +1,12 @@
 class Getch:
+    """
+    Reads raw terminal input using platform-specific implementations.
+    """
+    
     def __init__(self):
         try:
             self._impl = _GetchWindows()
+
         except ImportError:
             self._impl = _GetchUnix()
 
@@ -22,12 +27,13 @@ class _GetchUnix:
 
         fd = self._sys.stdin.fileno()
         old_settings = termios.tcgetattr(fd)  # type: ignore
+
         try:
             self._tty.setraw(self._sys.stdin.fileno())  # type: ignore
-            ch = self._sys.stdin.read(1)
+            return self._sys.stdin.read(1)
+
         finally:
             termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)  # type: ignore
-        return ch
 
 
 class _GetchWindows:

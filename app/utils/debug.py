@@ -22,5 +22,6 @@ def export_image(name: str, data: npt.NDArray, cmap: str = "gray", flip: bool = 
             mkdir(DIRECTORY)
 
         imsave(f"{DIRECTORY}/{name}.png", data, cmap=cmap)
-    except ImportError:
+    except (ImportError, PermissionError):
         pass
+

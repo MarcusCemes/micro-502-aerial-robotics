@@ -8,20 +8,22 @@ from .config import (
     ANGULAR_SCAN_VELOCITY_DEG,
     ANGULAR_VELOCITY_LIMIT_DEG,
     VELOCITY_LIMIT,
-    PAD_HEIGHT,
-    VERTICAL_VELOCITY_LIMIT,
-    VELOCITY_LIMIT_SLOW,
     VELOCITY_LIMIT_FAST,
-    CRUISING_ALTITUDE,
 )
 from .flight_states import Boot, FlightContext, State, Stop
 from .navigation import Navigation
 from .utils.math import Vec2, clip, normalise_angle, rad_to_deg
 
-import matplotlib.pyplot as plt
-
 
 class FlightController:
+    """
+    The FlightController controls the finite-state machine that is used to
+    control the actions of the drone. The FSM is evaluated once new sensor
+    data is received, updating the desired Trajectory in FlightContext
+    which is then used to generate the correct flight command to transmit
+    to the drone.
+    """
+
     _state: State
 
     def __init__(self, ctx: Context, navigation: Navigation) -> None:
@@ -29,29 +31,38 @@ class FlightController:
 
         self._fctx = FlightContext(ctx, navigation)
 
-        self.range_down_list = np.zeros(500)
-
     def update(self) -> bool:
-        return self.next()
+        """
+        Evalutes the finite-state machine recursively until a stable State
+        class is returned. If the Stop state is returned, the function returns
+        `True` to inducate that the FSM has terminated.
+        """
 
-    def next(self) -> bool:
         next = self._state.next(self._fctx)
 
         if next is not None:
+
+            # A state is not allowed to return itself as the next state,
+            # which is likely a cause of infinite recursion.
             if type(next) == self._state:
                 logger.error("🚨 Infinite loop detected in state machine")
                 return True
 
-            logger.info(f"🎲 Transition to state {next.__class__.__name__}")
+            logger.info(f"🚩 Transition to state {next.__class__.__name__}")
             self._state = next
 
             next.start(self._fctx)
+
             return self.update()
 
         return type(self._state) == Stop
 
     def apply_flight_command(self) -> None:
-        # start_time = time()
+        """
+        This method is called at the end of the update loop to generate the
+        correct drone flight command (hover setpoint) once the Trajectory
+        dataclass has been updated.
+        """
 
         nav = self._fctx.navigation
 
@@ -63,6 +74,7 @@ class FlightController:
         pos_coords = nav.to_coords(position)
         target_coords = nav.to_coords(t.position)
 
+        # Compute the path using the obstacle map
         path = None
 
         if self._fctx.enable_path_finding:
@@ -74,6 +86,8 @@ class FlightController:
         elif path == []:
             self._fctx.path = None
 
+        # Select the next waypoint as the first element in the path,
+        # or the trajectory target if a path is not available.
         while (
             self._fctx.is_near_next_waypoint()
             and self._fctx.path is not None
@@ -86,13 +100,13 @@ class FlightController:
         if self._fctx.path is not None and len(self._fctx.path) > 0:
             next_waypoint = self._fctx.path[0]
 
-        # if self._fctx.ctx.drone.slow_speed:
-        #     v = (next_waypoint - position).rotate((-s.yaw)).limit(VELOCITY_LIMIT_SLOW)
         if self._fctx.ctx.drone.fast_speed:
             v = (next_waypoint - position).rotate((-s.yaw)).limit(VELOCITY_LIMIT_FAST)
         else:
             v = (next_waypoint - position).rotate((-s.yaw)).limit(VELOCITY_LIMIT)
 
+        # Compute the required angular rotation to reach a specific orientation,
+        # or use a constant angular speed if scanning is enabled.
         va = ANGULAR_SCAN_VELOCITY_DEG
 
         if not self._fctx.scan:
@@ -102,12 +116,5 @@ class FlightController:
                 ANGULAR_VELOCITY_LIMIT_DEG,
             )
 
-            # if self._fctx.ctx.debug_tick:
-            #     logger.debug(f"Yaw: {s.yaw:.3f}, orien: {t.orientation:.3f}, va: {va}")
-
-        if self._fctx.disable_motors:
-            self._fctx.ctx.drone.cf.commander.send_notify_setpoint_stop()
-        else:
-            self._fctx.ctx.drone.cf.commander.send_hover_setpoint(
-                v.x, v.y, va, t.altitude
-            )
+        commander = self._fctx.ctx.drone.cf.commander
+        commander.send_hover_setpoint(v.x, v.y, va, t.altitude)

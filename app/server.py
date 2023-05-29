@@ -10,6 +10,12 @@ from .utils.observable import Observable
 
 
 class WebApplication(web.Application):
+    """
+    Starts a HTTP information server that broadcasts application state events,
+    such as the obstacle map and drone position that can be viewered in realtime
+    from an external application.
+    """
+
     def __init__(self, outlet: Observable, stop: Event):
         super().__init__()
 

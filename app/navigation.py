@@ -47,6 +47,12 @@ class Sensor(Enum):
 
 
 class Navigation:
+    """
+    Class responsible for handling drone navigation. Manages an obstacle path
+    and path computation by applying a spatial convolution to the probability-based
+    obstacle map before calling Dijkstra's algorithm on a weighted grid gragh.
+    """
+
     def __init__(self, ctx: Context):
         self._ctx = ctx
 
@@ -63,6 +69,10 @@ class Navigation:
         self.high_sensitivity = False
 
     def update(self):
+        """
+        Reads range sensors and updates the probability-based obstacle map.
+        """
+
         loc_detections = np.multiply(self.read_range_readings(), UNIT_SENSOR_VECTORS)
         loc_proj_detections = np.multiply(self.reduction_factors(), loc_detections)
         relative_detections = np.dot(self.yaw_rotation_matrix(), loc_proj_detections)
@@ -73,14 +83,12 @@ class Navigation:
         if self._ctx.debug_tick:
             export_image("map", self.map, cmap="RdYlGn_r")
 
-    def save(self) -> Map:
-        return self.map.copy()
-
-    def restore(self, map: Map) -> None:
-        self.map = map
-        self.field = self.field_gen.next(self.map)
-
     def compute_path(self, start: Coords, end: Coords) -> list[Coords] | None:
+        """
+        Applies a convolution to the obstacle map and computes the fastest path
+        using Dijkstra's algorithm.
+        """
+
         self.field = self.field_gen.next(self.map)
 
         if self._ctx.debug_tick:
@@ -91,14 +99,16 @@ class Navigation:
 
         path = algo.find_path(start, end)
 
-        if self._ctx.debug_tick and path is not None:
-            self.plot_and_save_path(path)
-
         self._ctx.outlet.broadcast({"type": "path", "data": path})
 
         return path
 
     def paint_relative_detections(self, detections: Matrix2x4) -> None:
+        """
+        Takes an array of detections in the drone's referential and
+        updates the probability map.
+        """
+
         position = self.global_position()
 
         for detection in detections.T:
@@ -109,9 +119,12 @@ class Navigation:
             detection = position + Vec2(*detection)
             self.paint_detection(position, detection, not out_of_range)
 
-        # self.paint_border()
-
     def paint_detection(self, origin: Vec2, detection: Vec2, detected: bool) -> None:
+        """
+        Takes a detection in the drone's referential, transforms it to the global
+        referential and updates all influenced pixels.
+        """
+
         coords_origin = self.to_coords(origin)
         coords_detection = self.to_coords(detection)
 
@@ -144,6 +157,10 @@ class Navigation:
         )
 
     def reduction_factors(self) -> Matrix1x4:
+        """
+        Provides compensation factors due to the drone's pitch and roll.
+        """
+
         s = self._ctx.sensors
         return np.repeat(np.cos(np.array([s.pitch, s.roll], DTYPE)), 2)
 
@@ -173,8 +190,6 @@ class Navigation:
 
     def to_position(self, coords: Coords) -> Vec2:
         (x, y) = coords
-        # print(" waypoint coords", coords)
-        # print("next no mag ", (x+.5)/MAP_PX_PER_M, (y+.5)/MAP_PX_PER_M)
         return Vec2((x + 0.5) / MAP_PX_PER_M, (y + 0.5) / MAP_PX_PER_M)
 
     def paint_border(self):
@@ -189,6 +204,7 @@ class Navigation:
     def distance_to_obstacle(self, coords: Coords) -> float:
         distance = float("inf")
         (x, y) = coords
+
         indices = np.transpose(np.where(self.map >= OCCUPATION_THRESHOLD))
 
         for i, j in indices:
@@ -196,24 +212,14 @@ class Navigation:
 
         return distance / MAP_PX_PER_M
 
-    def plot_and_save_path(self, path: list[Coords]) -> None:
-        plt.figure("path")
-        plt.xlim(0, self.map.shape[0])
-        plt.ylim(0, self.map.shape[1])
-
-        for i, j in path:
-            plt.plot(
-                i,
-                j,
-                marker="o",
-                markersize=2,
-                markeredgecolor="red",
-            )
-
-        plt.savefig("output/path.png")
-
 
 class FieldGenerator:
+    """
+    Takes the map and applies a spatial convolution to produces the cost field.
+    This class was originally destined to run in a seperate process for parallel
+    computation, but was brought back to the main process for simplicity.
+    """
+
     def __init__(self):
         super().__init__()
 

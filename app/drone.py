@@ -20,11 +20,10 @@ from .config import (
     RANGE_LOG_PERIOD_MS,
     STAB_LOG_PERIOD_MS,
     URI,
-    MAP_PX_PER_M,
     SEARCHING_PX_PER_M,
 )
 from .types import Sensors
-from .utils.math import Vec2, circular_kernel, deg_to_rad, mm_to_m, rbf_kernel
+from .utils.math import Vec2, deg_to_rad, mm_to_m
 from .utils.debug import export_image
 
 
@@ -53,7 +52,12 @@ RANGE_SENSORS = [
 ]
 
 
-class ProbalityMap:
+class ProbabilityMap:
+    """
+    Probability map is a 2D array of probabilities, representing the probability of
+    the pad being at a given position. The map is scaled to the objective pad zone and
+    is updated when a research point is reached.
+    """
     def __init__(self) -> None:
         self.map_offset = 3.5
         self.size = (int(1.5 * SEARCHING_PX_PER_M), int(3.0 * SEARCHING_PX_PER_M))
@@ -65,10 +69,9 @@ class ProbalityMap:
 
         try:
             self.probability_map[x, y] = max(
-                np.sum(np.abs(np.diff(fctx.ctx.drone.down_hist))),
+                np.sum(np.abs(np.diff(fctx.ctx.drone.down_hist)))-40,
                 self.probability_map[x, y],
             )
-
         except IndexError:
             pass
 
@@ -87,46 +90,45 @@ class ProbalityMap:
         px = (x + 0.5) / SEARCHING_PX_PER_M + self.map_offset
         py = (y + 0.5) / SEARCHING_PX_PER_M
 
-        # px = x/self.size[0]*1.5 + 3.5
-        # py = y/self.size[1]*3
-
         return Vec2(px, py)
 
     def process_map(self):
-        # print(np.amax(self.probability_map))
-        # temp = (self.probability_map > 0) * self.probability_map
-        # threshold = np.median(temp)
-        # map = (self.probability_map > threshold + 29) * self.probability_map
-        # plt.imsave("sssssy_map.png", map)
+        map = (self.probability_map > 0) * self.probability_map
+        plt.imsave("sssssy_map.png", map)
 
         return map
 
     def find_mean_position(self) -> Vec2:
-        # map = self.process_map()
+        map = self.process_map()
 
-        # x_coords, y_coords = np.meshgrid(
-        #     range(map.shape[1]),
-        #     range(map.shape[0]),
-        # )
+        x_coords, y_coords = np.meshgrid(
+            range(map.shape[1]),
+            range(map.shape[0]),
+        )
 
-        # mean_x = nsp.sum(x_coords * map) / np.sum(map)
-        # mean_y = np.sum(y_coords * map) / np.sum(map)
+        if np.sum(map) == 0:
+            logger.info('😭 No pad found')
+            position = self.to_position((4.0, 1.5))
+        else:
+            mean_x = np.sum(x_coords * map) / np.sum(map)
+            mean_y = np.sum(y_coords * map) / np.sum(map)
 
-        # kernel = circular_kernel(20)
-        kernel = rbf_kernel(31, 6.0) - 0.5 * rbf_kernel(31, 3.5)
-        export_image("kernel_pad", kernel)
+            position = self.to_position((mean_y, mean_x))
 
-        np.save("probability_map", self.probability_map)
-        conv = cv2.filter2D(self.probability_map, -1, kernel)
-        export_image("probability_map_conv", conv)
+            # kernel = rbf_kernel(31, 6.0) - 0.5 * rbf_kernel(31, 3.5)
+            # export_image("kernel_pad", kernel)
 
-        conv = cv2.filter2D(conv, -1, circular_kernel(25))
-        export_image("probability_map_conv_2", conv)
+            # np.save("probability_map", self.probability_map)
+            # conv = cv2.filter2D(self.probability_map, -1, kernel)
+            # export_image("probability_map_conv", conv)
 
-        max = np.argmax(conv, axis=None)
-        (x, y) = np.unravel_index(max, conv.shape)
-        position = self.to_position((int(x), int(y)))
-        logger.info(f"Found max index at {(x, y)}, position {position}")
+            # conv = cv2.filter2D(conv, -1, circular_kernel(25))
+            # export_image("probability_map_conv_2", conv)
+
+            # max = np.argmax(conv, axis=None)
+            # (x, y) = np.unravel_index(max, conv.shape)
+            # position = self.to_position((int(x), int(y)))
+            # logger.info(f"Found max index at {(x, y)}, position {position}")
 
         return position
 
@@ -135,18 +137,22 @@ class ProbalityMap:
 
 
 class Drone:
+    """
+    A wrapper module around the Crazyflie class. Attaches all the correct
+    event callback handlers, configures drone logging and decodes received
+    log packets into the Sensors dataclass format.
+    """
+
     def __init__(self, data_event: Event) -> None:
         self.cf = Crazyflie(rw_cache=CACHE_DIR)
 
         self._connection_future: Future[Any] | None = None
         self._data_event = data_event
-        self._last_sensor_data: Sensors = Sensors()
-        self._lock = threading.Lock()
         self._loop = get_running_loop()
 
         self._sensors = Sensors()
 
-        self.prob_map = ProbalityMap()
+        self.prob_map = ProbabilityMap()
 
         self.fast_speed = False
         self.first_landing = False
@@ -155,6 +161,11 @@ class Drone:
         self.tot_down_hist = []
         self.tot_mean = []
         self.tot_diff = []
+
+        # Access to _last_sensor_data MUST ACQUIRE THE MUTEX LOCK
+        # to prevent race conditions between threads
+        self._lock = threading.Lock()
+        self._last_sensor_data: Sensors = Sensors()
 
     async def __aenter__(self) -> Drone:
         await self.connect()
@@ -177,12 +188,18 @@ class Drone:
 
         self.cf.open_link(URI)
 
+        # Generate a future that resolves once the connection is acquired
         try:
             await self._connection_future
+
         finally:
             self._connection_future = None
 
     def configure_logging(self) -> None:
+        """
+        Generates the logging configs that are registered with the Crazyflie.
+        """
+
         assert self.cf.is_connected()
 
         for name, sensors, period in [
@@ -204,6 +221,11 @@ class Drone:
             logger.info("📶 Link closed")
 
     def get_last_sensor_reading(self) -> Sensors:
+        """
+        Public method that fetches the last stored sensor data, protected via
+        a mutex to prevent race conditions with the packet receiver thread.
+        """
+
         with self._lock:
             return self._last_sensor_data
 
@@ -253,6 +275,12 @@ class Drone:
         logger.warning(f"Connection lost: {msg}")
 
     def _on_sensor_data(self, _, data, cfg: LogConfig) -> None:
+        """
+        Receives sensor log packets, decoes them into the Sensors dataclass
+        and stores it in the class once a mutex is acquired. This method
+        is called from a seperate thread.
+        """
+
         match cfg.name:
             case LogNames.Stabiliser:
                 self._sensors.x = data["stateEstimate.x"]
@@ -280,9 +308,12 @@ class Drone:
                 self._sensors.vx = float(data["stateEstimate.vx"])
                 self._sensors.vy = float(data["stateEstimate.vy"])
 
+        # Acquires the mutex to avoid race conditions, before cloning the dataclass
+        # and assigning it to a class property
         with self._lock:
             self._last_sensor_data = replace(self._sensors)
 
+        # Wake up the event loop running on the main thread
         self._loop.call_soon_threadsafe(self._data_event.set)
 
     def _on_sensor_error(self, cfg: LogConfig, msg: str):

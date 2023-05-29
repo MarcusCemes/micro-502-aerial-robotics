@@ -15,21 +15,25 @@ class Command(Enum):
     Land = "land"
     Stop = "stop"
 
-
-
 class BiggerBrain:
+    """
+    The BiggerBrain class is responsible for the high-level control of the application.
+    An infinite loop is repeatedly evaluated that reads drone sensor data, updates concerned
+    modules (such as Navigation), evaluates the Finite State Machine (FlightController)
+    and generates the latest flight command to transmit to the drone.
+    """
+
     def __init__(self, ctx: Context) -> None:
         self._ctx = ctx
 
         self._nav = Navigation(self._ctx)
-
         self._flight_ctl = FlightController(ctx, self._nav)
-        self._last_execution = 0.0
 
     async def run(self, cmds: Queue[Command]) -> None:
         try:
-            logger.info("🚁 Taking off")
-
+            # The following counter is used to reduce the frequency of some operations
+            # to run every few ticks. When the debug counter overflows, a flag is set
+            # in the shared Context class.
             debug_counter = 0
 
             while True:
@@ -39,59 +43,55 @@ class BiggerBrain:
                     debug_counter = 0
                     self._ctx.debug_tick = True
 
-                # Free the event loop to allow sensors to be updated
-                # await sleep(1e-3)
-
-                # if self._ctx.new_data.is_set():
-                #     logger.warning("🐢 Too slow, missed sensor data events!")
-
+                # Release the event loop until sensor data is available or
+                # a terminal command is received.
                 maybe_cmd = await self._wait_for_event(cmds)
                 self._ctx.new_data.clear()
-
-                # start_time = time()
-                self._update_sensors()
-
-                self._ctx.outlet.broadcast(
-                    {"type": "sensors", "data": asdict(self._ctx.sensors)}
-                )
-
-                # if self._ctx.drone.first_landing:
-                #     logger.debug("🚁 First landing")
-                #     await self._ctx.drone.reset_estimator(self._ctx.drone.new_pos)
-                #     self._ctx.drone.first_landing = False
 
                 if maybe_cmd is not None:
                     await self._handle_cmd(maybe_cmd)
                     return
 
+                # Fetch the latest sensor data from the receiver thread and update
+                # the Sensors dataclass in the Context class.
+                self._update_sensors()
+
+                # Transmit the sensor data to a running HTTP WebSocket server
+                self._ctx.outlet.broadcast(
+                    {"type": "sensors", "data": asdict(self._ctx.sensors)}
+                )
+
+                # Update the obstacle map in Navigation (reads Sensors from Context)
                 self._nav.update()
 
+                # Evaluate the FlightController finite state machine
                 if self._flight_ctl.update():
                     break
 
+                # Generate the flight command and transmit to drone
                 self._flight_ctl.apply_flight_command()
-
-                # end_time = time()
-                # duration = end_time - start_time
-
-                # if duration >= 20e-3:
-                #     logger.warning(f"Brain took {1e3 * duration:.2f} ms")
 
                 self._ctx.debug_tick = False
 
-            logger.info("🚁 Landing")
-
         finally:
             self._ctx.drone.cf.commander.send_stop_setpoint()
-            # self._nav.stop()
 
     # == Private == #
 
     def _update_sensors(self) -> None:
+        """
+        Retrieves the latset sensor data from the Drone class using a mutex.
+        """
+
         reading = self._ctx.drone.get_last_sensor_reading()
         self._ctx.sensors = reading
 
     async def _wait_for_event(self, cmds: Queue[Command]) -> Command | None:
+        """
+        Runs two coroutines concurrently waiting for different events, returning
+        as soon as one of them is resolved (equivilent to Promise.race()).
+        """
+
         try:
             return cmds.get_nowait()
 
@@ -120,8 +120,6 @@ class BiggerBrain:
             case Command.Land:
                 logger.info("🤚 Emergency landing")
                 self._ctx.drone.cf.commander.send_hover_setpoint(0.0, 0.0, 0.0, 0.0)
-                # await sleep(0.5)
-                logger.info("👍 Landed")
 
             case Command.Stop:
                 logger.info("⛔ Emergency stop")
