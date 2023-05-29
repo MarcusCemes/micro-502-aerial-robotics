@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from math import atan2, cos, isclose, pi, sin, sqrt
 from typing import Generator, overload
+import cv2
 
 import numpy as np
 import numpy.typing as npt
@@ -96,7 +97,9 @@ class Vec2:
 
     def rotate(self, angle: float) -> Vec2:
         s, c = sin(angle), cos(angle)
-        return Vec2(self.x * c - self.y * s, self.x * s + self.y * c) # attention, pbm de signe ici
+        return Vec2(
+            self.x * c - self.y * s, self.x * s + self.y * c
+        )  # attention, pbm de signe ici
 
     def set_mag(self, mag: float) -> Vec2:
         if self.x == 0.0 and self.y == 0.0:
@@ -165,6 +168,10 @@ def rbf_kernel(size: int, sigma: float, integer=True) -> npt.NDArray:
         gkern2d = gkern2d.astype(np.int32)
 
     return gkern2d
+
+
+def circular_kernel(size: int) -> npt.NDArray:
+    return cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (size, size))
 
 
 def deg_to_rad(deg: float) -> float:
