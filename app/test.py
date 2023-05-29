@@ -1,29 +1,49 @@
-import matplotlib.pyplot as plt
+from matplotlib.patches import Circle  # type: ignore
+import matplotlib.pyplot as plt  # type: ignore
 import numpy as np
-from scipy import signal
-from scipy.signal.windows import gaussian
-import cv2
-# from scipy.ndimage.filters import laplace
-# from scipy.ndimage import gaussian_laplace
+from scipy import signal  # type: ignore
+import cv2  # type: ignore
 
-# from utils.math import rbf_kernel
+from .config import SEARCHING_PX_PER_M
+from .utils.debug import export_image
+from .utils.math import Vec2, rbf_kernel
 
 
-def rbf_kernel(size: int, sigma: float, integer=True):
-    """Returns a 2D Gaussian kernel array."""
-    gkern1d = gaussian(size, std=sigma).reshape(size, 1)
-    gkern2d = np.outer(gkern1d, gkern1d)
+def to_position(coords):
+    (x, y) = coords
 
-    if integer:
-        max_value = np.max(gkern2d)
-        gkern2d = gkern2d / max_value * 16
-        gkern2d = gkern2d.astype(np.int32)
+    px = (x + 0.5) / SEARCHING_PX_PER_M + 3.5
+    py = (y + 0.5) / SEARCHING_PX_PER_M
 
-    return gkern2d
+    return Vec2(px, py)
 
-kernel = rbf_kernel(21, 3) - rbf_kernel(21, 2)
 
-plt.imsave("kernel_detect.png", kernel)
+fig, ax = plt.subplots(3)
+
+kernel = rbf_kernel(31, 6.0) - 0.5 * rbf_kernel(31, 3.5)
+ax[0].imshow(kernel)
+export_image("kernel_detect", kernel)
+
+data = np.load("probability_map.npy")
+print(f"Map size is {data.shape}")
+
+ax[1].imshow(data)
+
+conv = cv2.filter2D(data, -1, kernel)
+
+max = np.argmax(conv, axis=None)
+(x, y) = np.unravel_index(max, conv.shape)
+position = to_position((int(x), int(y)))
+
+print(f"Found max index at {(x, y)}, position {position}")
+
+ax[2].imshow(conv)
+circ = Circle((float(y), float(x)), 2, color="red")
+ax[2].add_patch(circ)
+
+plt.show()
+
+# == Other stuff == #
 
 # kernel = laplace(np.shape(100, 100), 1)
 
@@ -89,9 +109,7 @@ plt.imsave("kernel_detect.png", kernel)
 # print(c)
 
 
-
-gauss = np.array([[1,2,1],[2,4,2],[1,2,1]])
-laplacian = np.array([[0,-1,0],[-1,4,-1],[0,-1,0]])
+gauss = np.array([[1, 2, 1], [2, 4, 2], [1, 2, 1]])
+laplacian = np.array([[0, -1, 0], [-1, 4, -1], [0, -1, 0]])
 
 signal.convolve2d(laplacian, gauss)
-

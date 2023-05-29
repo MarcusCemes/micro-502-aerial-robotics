@@ -105,4 +105,9 @@ class FlightController:
             # if self._fctx.ctx.debug_tick:
             #     logger.debug(f"Yaw: {s.yaw:.3f}, orien: {t.orientation:.3f}, va: {va}")
 
-        self._fctx.ctx.drone.cf.commander.send_hover_setpoint(v.x, v.y, va, t.altitude)
+        if self._fctx.disable_motors:
+            self._fctx.ctx.drone.cf.commander.send_notify_setpoint_stop()
+        else:
+            self._fctx.ctx.drone.cf.commander.send_hover_setpoint(
+                v.x, v.y, va, t.altitude
+            )

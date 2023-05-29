@@ -13,6 +13,7 @@ import json
 from .common import Context
 from .config import (
     ALTITUDE_ERROR,
+    CRUISING_ALTITUDE,
     INITIAL_POSITION,
     POSITION_ERROR,
     LATERAL_MOVEMENT,
@@ -80,6 +81,7 @@ class FlightContext:
 
     trajectory: Trajectory = field(default_factory=Trajectory)
 
+    disable_motors: bool = False
     home_pad: Vec2 | None = None
     pad_detection: bool = False
     over_pad: bool = True
@@ -187,7 +189,7 @@ class Boot(State):
 
 class Takeoff(State):
     def start(self, fctx: FlightContext) -> None:
-        fctx.trajectory.altitude = 0.4
+        fctx.trajectory.altitude = CRUISING_ALTITUDE
 
     def next(self, fctx: FlightContext) -> State | None:
         if fctx.is_near_target_altitude():
@@ -229,6 +231,8 @@ class Cross(State):
         if fctx.has_crossed_the_line():
             return TargetSearch()
 
+        return None
+
 
 class TargetSearch(State):
     def __init__(self):
@@ -250,7 +254,8 @@ class TargetSearch(State):
 
         # logger.debug(f"Pos {fctx.navigation.global_position()}")
 
-        fctx.ctx.drone.prob_map.fill(fctx)
+        if self.index >= 1:
+            fctx.ctx.drone.prob_map.fill(fctx)
 
         # if np.amax(fctx.ctx.drone.prob_map.probability_map) > PROBABILITY_THRESHOLD:
         #     fctx.target_pad = fctx.ctx.drone.prob_map.find_mean_position()
@@ -263,7 +268,6 @@ class TargetSearch(State):
             fctx.ctx.drone.prob_map.save()
 
             if self.index == len(self.research_points):
-                logger.info("🔎 look at that")
                 fctx.target_pad = fctx.ctx.drone.prob_map.find_mean_position()
                 logger.debug(f"target pad {fctx.target_pad}")
                 return GoToTarget()
@@ -669,7 +673,7 @@ class TouchDown(State):
 
     def next(self, fctx: FlightContext) -> State | None:
         fctx.trajectory.altitude -= 0.005
-        if fctx.trajectory.altitude < 0.001 and not self.touched:
+        if fctx.trajectory.altitude <= -0.14 and not self.touched:
             fctx.trajectory.altitude = 0.4
             self.touched = True
 
@@ -681,20 +685,27 @@ class TouchDown(State):
 
 class ReturnHome(State):
     def start(self, fctx: FlightContext):
+        assert fctx.home_pad is not None
+
         fctx.scan = True
         fctx.enable_path_finding = True
         fctx.ctx.drone.slow_speed = False
-        assert fctx.home_pad is not None
+
         logger.info(f"🏠 Returning home to {fctx.home_pad}")
-        fctx.trajectory.position = fctx.home_pad
+        correction_offset = Vec2(0.0, -8e-2)
+        fctx.trajectory.position = fctx.home_pad + correction_offset
         # print(f"home pad:  {fctx.home_pad.x}, {fctx.home_pad.y}")
-        logger.info(f"drone position: {fctx.navigation.global_position().x}, {fctx.navigation.global_position().y}")
+        logger.info(
+            f"drone position: {fctx.navigation.global_position().x}, {fctx.navigation.global_position().y}"
+        )
 
     def next(self, fctx: FlightContext) -> State | None:
         if (
             fctx.is_near_target_pad()
         ):  # or (pad_detection(fctx) and fctx.is_near_home()):
-            logger.info(f"drone position: {fctx.navigation.global_position().x}, {fctx.navigation.global_position().y}")
+            logger.info(
+                f"drone position: {fctx.navigation.global_position().x}, {fctx.navigation.global_position().y}"
+            )
             fctx.target_pad = fctx.home_pad
             return GoLower()
 

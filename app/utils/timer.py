@@ -3,7 +3,7 @@ from time import time
 
 class Timer:
     def __init__(self):
-        self._time = 0
+        self._time = 0.0
 
     def reset(self) -> None:
         self._time = time()
