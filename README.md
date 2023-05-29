@@ -11,3 +11,11 @@ Pylance doesn't seem to be able to resolve the `cflib` package when it is instal
 ```batch
 > mklink /D cflib C:\...\crazyflie-lib-python\cflib
 ```
+
+## Usage
+
+To run the Crazyflie controller, start the app module.
+
+```
+python -m app
+```

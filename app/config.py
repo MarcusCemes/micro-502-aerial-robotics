@@ -9,12 +9,14 @@ URI: Final = "radio://0/10/2M/E7E7E7E711"
 
 INITIAL_POSITION: Final = (0.75, 1.5)
 
+
 # == Environment == #
 
 BOX_LIMIT: Final = 0.5
 PAD_HEIGHT: Final = 0.1
 PAD_WIDTH: Final = 0.37
 LINE_TARGET_SEARCH: Final = 3.5
+
 
 # == Flight == #
 
@@ -47,8 +49,9 @@ MAP_PX_PER_M: Final = 25
 SEARCHING_PX_PER_M: Final = 40
 LATERAL_MOVEMENT: Final = 0.5
 
+
 # == Miscellaneous == #
 
-DEBUG_FILES: Final = True
+DEBUG_FILES: Final = False
 SERVER_ENABLED: Final = False
 SERVER_PORT: Final = 8080
