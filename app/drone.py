@@ -6,6 +6,7 @@ from dataclasses import replace
 from enum import Enum
 from typing import Any
 import numpy as np
+import matplotlib.pyplot as plt
 
 from loguru import logger
 
@@ -18,6 +19,7 @@ from .config import (
     RANGE_LOG_PERIOD_MS,
     STAB_LOG_PERIOD_MS,
     URI,
+    MAP_PX_PER_M,
 )
 from .types import Sensors
 from .utils.math import Vec2, deg_to_rad, mm_to_m
@@ -41,11 +43,66 @@ STAB_SENSORS = [
 
 RANGE_SENSORS = [
     ("range.zrange", "uint16_t"),
-    ("stabilizer.roll", "float"), 
+    ("stabilizer.roll", "float"),
     ("stabilizer.pitch", "float"),
     ("stateEstimate.vx", "float"),
-    ("stateEstimate.vy", "float")
+    ("stateEstimate.vy", "float"),
 ]
+
+
+class ProbalityMap:
+    def __init__(self) -> None:
+        self.map_offset = 3.5
+        self.size = (int(float(MAP_PX_PER_M) * 1.5), int(float(MAP_PX_PER_M) * 3.0))
+        self.probability_map = np.zeros(self.size)
+
+    def fill(self, fctx: FlightContext):
+        coords = self.to_coords(fctx.navigation.global_position())
+        self.probability_map[coords[0], coords[1]] = max(
+            np.sum(np.abs(np.diff(fctx.ctx.drone.down_hist))),
+            self.probability_map[coords[0], coords[1]],
+        )
+
+    def to_coords(self, position: Vec2):
+        px_x, px_y = self.size
+        size_x, size_y = 1.5, 3.0
+
+        cx = int((position.x - self.map_offset) * px_x / size_x)
+        cy = int(position.y * px_y / size_y)
+
+        return (cx, cy)
+
+    def to_position(self, coords):
+        (y, x) = coords
+
+        return Vec2(
+            ((x + 0.5) / MAP_PX_PER_M) + self.map_offset, (y + 0.5) / MAP_PX_PER_M
+        )
+
+    def process_map(self):
+        print(np.amax(self.probability_map))
+        temp = (self.probability_map > 0) * self.probability_map
+        threshold = np.median(temp)
+        map = (self.probability_map > threshold + 29) * self.probability_map
+        plt.imsave("sssssy_map.png", map)
+
+        return map
+
+    def find_mean_position(self):
+        map = self.process_map()
+
+        x_coords, y_coords = np.meshgrid(
+            range(map.shape[1]),
+            range(map.shape[0]),
+        )
+
+        mean_x = np.sum(x_coords * map) / np.sum(map)
+        mean_y = np.sum(y_coords * map) / np.sum(map)
+
+        return self.to_position((mean_x, mean_y))
+
+    def save(self):
+        plt.imsave("probability_map.png", self.probability_map)
 
 
 class Drone:
@@ -60,9 +117,15 @@ class Drone:
 
         self._sensors = Sensors()
 
+        self.prob_map = ProbalityMap()
+
         self.fast_speed = False
         self.first_landing = False
         self.last_z: float = 0
+        self.down_hist = np.zeros(8)
+        self.tot_down_hist = []
+        self.tot_mean = []
+        self.tot_diff = []
 
     async def __aenter__(self) -> Drone:
         await self.connect()
@@ -174,9 +237,17 @@ class Drone:
 
             case LogNames.Range:
                 self._sensors.down = float(mm_to_m(data["range.zrange"]))
-                self._sensors.down_hist = np.append(self._sensors.down_hist[1:], data["range.zrange"])
                 self._sensors.roll = float(deg_to_rad(data["stabilizer.roll"]))
                 self._sensors.pitch = float(deg_to_rad(data["stabilizer.pitch"]))
+                self.down_hist = np.append(
+                    self.down_hist[1:],
+                    np.cos(self._sensors.roll)
+                    * np.cos(self._sensors.pitch)
+                    * data["range.zrange"],
+                )
+                self.tot_down_hist.append(data["range.zrange"])
+                self.tot_mean.append(np.mean(self.down_hist))
+                self.tot_diff.append(np.sum(np.abs(np.diff(self.down_hist))))
                 self._sensors.vx = float(data["stateEstimate.vx"])
                 self._sensors.vy = float(data["stateEstimate.vy"])
 

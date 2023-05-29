@@ -1,5 +1,5 @@
 from enum import Enum
-from math import sqrt
+from math import sqrt, circular_kernel
 from typing import Annotated, Literal
 
 import cv2  # type: ignore
@@ -35,7 +35,7 @@ OCCUPATION_THRESHOLD = 3
 
 UNIT_SENSOR_VECTORS: Matrix2x4 = np.array([[1, 0, -1, 0], [0, 1, 0, -1]], dtype=DTYPE)
 
-KERNEL_SIZE = 15
+KERNEL_SIZE = 30
 KERNEL_SIGMA = 2.5
 
 
@@ -209,7 +209,7 @@ class Navigation:
                 markersize=2,
                 markeredgecolor="red",
             )
-    
+
         plt.savefig("output/path.png")
 
 
@@ -217,7 +217,7 @@ class FieldGenerator:
     def __init__(self):
         super().__init__()
 
-        self.kernel = rbf_kernel(KERNEL_SIZE, KERNEL_SIGMA)
+        self.kernel = circular_kernel(KERNEL_SIZE)
         export_image("kernel", self.kernel, cmap="gray")
 
     def next(self, map: Map) -> Field:

@@ -12,6 +12,7 @@ from .config import (
     VERTICAL_VELOCITY_LIMIT,
     VELOCITY_LIMIT_SLOW,
     VELOCITY_LIMIT_FAST,
+    CRUISING_ALTITUDE,
 )
 from .flight_states import Boot, FlightContext, State, Stop
 from .navigation import Navigation
@@ -36,10 +37,10 @@ class FlightController:
     def next(self) -> bool:
         next = self._state.next(self._fctx)
 
-        if self._fctx.ctx.debug_tick:
-            plt.figure("Range down")
-            plt.plot(np.arange(len(self.range_down_list)), self.range_down_list)
-            plt.savefig("output/range_down.png")
+        # if self._fctx.ctx.debug_tick:
+        #     plt.figure("Range down")
+        #     plt.plot(np.arange(len(self.range_down_list)), self.range_down_list)
+        #     plt.savefig("output/range_down.png")
 
         if next is not None:
             if type(next) == self._state:
@@ -97,11 +98,10 @@ class FlightController:
         else:
             v = (next_waypoint - position).rotate((-s.yaw)).limit(VELOCITY_LIMIT)
 
-        target_altitude = t.altitude
-
         va = ANGULAR_SCAN_VELOCITY_DEG
 
         if not self._fctx.scan:
+            # logger.debug(f"angle {s.yaw} {t.orientation}")
             va = clip(
                 rad_to_deg(normalise_angle(s.yaw - t.orientation)),
                 -ANGULAR_VELOCITY_LIMIT_DEG,
@@ -111,6 +111,4 @@ class FlightController:
         # if self._fctx.ctx.debug_tick:
         #     logger.debug(f"Target altitude is {target_altitude:.2f}")
 
-        self._fctx.ctx.drone.cf.commander.send_hover_setpoint(
-            v.x, v.y, va, target_altitude
-        )
+        self._fctx.ctx.drone.cf.commander.send_hover_setpoint(v.x, v.y, va, t.altitude)

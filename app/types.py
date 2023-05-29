@@ -19,4 +19,3 @@ class Sensors:
     left: float = 0
     right: float = 0
     down: float = 0
-    down_hist = np.zeros(50)
