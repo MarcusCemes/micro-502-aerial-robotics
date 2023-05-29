@@ -466,7 +466,8 @@ class Centering(State):
 
 class GoToTarget(State):
     def start(self, fctx: FlightContext) -> None:
-        fctx.trajectory.position = fctx.target_pad
+        correction_offset = Vec2(0.0, -9e-2)
+        fctx.trajectory.position = fctx.target_pad + correction_offset
 
     def next(self, fctx: FlightContext) -> State | None:
         if fctx.is_near_target_pad():
@@ -669,7 +670,7 @@ class TouchDown(State):
     def start(self, fctx: FlightContext):
         logger.info(f"👌 Touching down")
         self.touched = False
-        fctx.trajectory.position = fctx.target_pad
+        
 
     def next(self, fctx: FlightContext) -> State | None:
         fctx.trajectory.altitude -= 0.005

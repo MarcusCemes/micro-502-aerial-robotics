@@ -7,7 +7,7 @@ RANGE_LOG_PERIOD_MS: Final = 50
 STAB_LOG_PERIOD_MS: Final = 50
 URI: Final = "radio://0/10/2M/E7E7E7E711"
 
-INITIAL_POSITION: Final = (3.0, 0.9)
+INITIAL_POSITION: Final = (0.75, 1.5)
 
 # == Environment == #
 
