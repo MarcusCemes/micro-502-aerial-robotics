@@ -128,9 +128,9 @@ dmypy.json
 # Pyre type checker
 .pyre/
 
-# Occupancy map
-output
-
 # Crazyflie things
 cache
 cflib
+
+*.png
+*.npy
