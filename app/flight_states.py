@@ -15,7 +15,6 @@ from .config import (
     ALTITUDE_ERROR,
     INITIAL_POSITION,
     POSITION_ERROR,
-    MAX_SLOPE,
     LATERAL_MOVEMENT,
     POSITION_ERROR_PAD,
     PAD_WIDTH,
@@ -23,8 +22,6 @@ from .config import (
     HOME_PAD_ERROR,
     POSITION_ERROR_PAD,
     MIN_DIFF,
-    MAP_PX_PER_M,
-    PROBABILITY_THRESHOLD,
 )
 from .navigation import Navigation
 from .utils.math import Vec2
@@ -91,6 +88,7 @@ class FlightContext:
     target_pad: Vec2 | None = None
     id = 0
     # z_hist = np.zeros(5)
+    enable_path_finding: bool = True
 
     # == Sensors == #
 
@@ -239,7 +237,7 @@ class TargetSearch(State):
         self.index = 0
 
     def start(self, fctx: FlightContext):
-        fctx.scan = True
+        fctx.scan = False
         # compute target map
         self.compute_target_map(fctx)
         # set target
@@ -268,7 +266,7 @@ class TargetSearch(State):
                 logger.info("🔎 look at that")
                 fctx.target_pad = fctx.ctx.drone.prob_map.find_mean_position()
                 logger.debug(f"target pad {fctx.target_pad}")
-                return Centering()
+                return GoToTarget()
             else:
                 fctx.trajectory.position = fctx.navigation.to_position(
                     self.research_points[self.index]
@@ -392,6 +390,7 @@ class Centering(State):
         self.research_counter: int = 0
         self.counter_axe: int = 0
 
+        fctx.enable_path_finding = False
         fctx.scan = False
 
     def next(self, fctx: FlightContext) -> State | None:
@@ -493,6 +492,7 @@ class TargetCentering(State):
         self.update_platform_pos(fctx)
         # fctx.ctx.drone.slow_speed = True
 
+        fctx.enable_path_finding = False
         fctx.scan = False
 
     def next(self, fctx: FlightContext) -> State | None:
@@ -682,16 +682,19 @@ class TouchDown(State):
 class ReturnHome(State):
     def start(self, fctx: FlightContext):
         fctx.scan = True
+        fctx.enable_path_finding = True
         fctx.ctx.drone.slow_speed = False
         assert fctx.home_pad is not None
-        print(f"🏠 Returning home to {fctx.home_pad}")
+        logger.info(f"🏠 Returning home to {fctx.home_pad}")
         fctx.trajectory.position = fctx.home_pad
-        print(f"home pad:  {fctx.home_pad.x}, {fctx.home_pad.y}")
+        # print(f"home pad:  {fctx.home_pad.x}, {fctx.home_pad.y}")
+        logger.info(f"drone position: {fctx.navigation.global_position().x}, {fctx.navigation.global_position().y}")
 
     def next(self, fctx: FlightContext) -> State | None:
         if (
             fctx.is_near_target_pad()
         ):  # or (pad_detection(fctx) and fctx.is_near_home()):
+            logger.info(f"drone position: {fctx.navigation.global_position().x}, {fctx.navigation.global_position().y}")
             fctx.target_pad = fctx.home_pad
             return GoLower()
 
@@ -727,7 +730,7 @@ class HomeSearch(State):
 
         if pad_detection(fctx):
             fctx.target_pad = fctx.navigation.global_position()
-            logger.debug(f"🤣First detetion {fctx.target_pad}")
+            logger.debug(f"🤣First detection {fctx.target_pad}")
             return GoLower(fctx)
 
     def compute_target_map(self, fctx: FlightContext):

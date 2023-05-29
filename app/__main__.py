@@ -22,6 +22,7 @@ from cflib.crtp import init_drivers
 
 from .bigger_brain import BiggerBrain, Command
 from .common import Context
+from .config import SERVER_ENABLED
 from .drone import Drone
 
 EXIT_SIGNALS: Final = [SIGINT, CTRL_C_EVENT]
@@ -65,14 +66,16 @@ async def init():
 
         ctx = Context(drone, data_event)
 
-        # server = Server(ctx)
-        # stop_server = Event()
-        # server_task = create_task(server.run(stop_server))
+        if SERVER_ENABLED:
+            server = Server(ctx)
+            stop_server = Event()
+            server_task = create_task(server.run(stop_server))
 
         await BiggerBrain(ctx).run(cmds)
 
-        # stop_server.set()
-        # await server_task
+        if SERVER_ENABLED:
+            stop_server.set()
+            await server_task
 
 
 class StopWatchdog(threading.Thread):

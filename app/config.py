@@ -7,7 +7,7 @@ RANGE_LOG_PERIOD_MS: Final = 50
 STAB_LOG_PERIOD_MS: Final = 50
 URI: Final = "radio://0/10/2M/E7E7E7E711"
 
-INITIAL_POSITION: Final = (0.5, 0.75)
+INITIAL_POSITION: Final = (3.0, 0.9)
 
 # == Environment == #
 
@@ -44,9 +44,11 @@ MAP_SIZE: Final = (5.0, 3.0)
 OPTIMISE_PATH: Final = True
 RANGE_THRESHOLD: Final = 2.0
 MAP_PX_PER_M: Final = 25
+SEARCHING_PX_PER_M: Final = 40
 LATERAL_MOVEMENT: Final = 0.5
 
 # == Miscellaneous == #
 
 DEBUG_FILES: Final = True
-SERVER_PORT = 8080
+SERVER_ENABLED: Final = True
+SERVER_PORT: Final = 8080

@@ -7,6 +7,7 @@ from enum import Enum
 from typing import Any
 import numpy as np
 import matplotlib.pyplot as plt
+import cv2
 
 from loguru import logger
 
@@ -20,10 +21,11 @@ from .config import (
     STAB_LOG_PERIOD_MS,
     URI,
     MAP_PX_PER_M,
+    SEARCHING_PX_PER_M
 )
 from .types import Sensors
-from .utils.math import Vec2, deg_to_rad, mm_to_m
-
+from .utils.math import Vec2, deg_to_rad, mm_to_m, rbf_kernel
+from .utils.debug import export_image
 
 class LogNames(Enum):
     Stabiliser = "stab"
@@ -53,15 +55,20 @@ RANGE_SENSORS = [
 class ProbalityMap:
     def __init__(self) -> None:
         self.map_offset = 3.5
-        self.size = (int(float(MAP_PX_PER_M) * 1.5), int(float(MAP_PX_PER_M) * 3.0))
+        self.size = (int(1.5 * SEARCHING_PX_PER_M), int(3.0 * SEARCHING_PX_PER_M))
         self.probability_map = np.zeros(self.size)
 
-    def fill(self, fctx: FlightContext):
+    def fill(self, fctx):
         coords = self.to_coords(fctx.navigation.global_position())
-        self.probability_map[coords[0], coords[1]] = max(
-            np.sum(np.abs(np.diff(fctx.ctx.drone.down_hist))),
-            self.probability_map[coords[0], coords[1]],
-        )
+
+        try:
+            self.probability_map[coords[0], coords[1]] = max(
+                np.sum(np.abs(np.diff(fctx.ctx.drone.down_hist))),
+                self.probability_map[coords[0], coords[1]],
+            )
+
+        except IndexError:
+            pass
 
     def to_coords(self, position: Vec2):
         px_x, px_y = self.size
@@ -72,37 +79,58 @@ class ProbalityMap:
 
         return (cx, cy)
 
-    def to_position(self, coords):
-        (y, x) = coords
+    def to_position(self, coords) -> Vec2:
+        (x, y) = coords
 
-        return Vec2(
-            ((x + 0.5) / MAP_PX_PER_M) + self.map_offset, (y + 0.5) / MAP_PX_PER_M
-        )
+        px = (x + 0.5) / SEARCHING_PX_PER_M + self.map_offset
+        py = (y + 0.5) / SEARCHING_PX_PER_M
+
+        #px = x/self.size[0]*1.5 + 3.5
+        #py = y/self.size[1]*3
+
+        return Vec2(px, py)
 
     def process_map(self):
-        print(np.amax(self.probability_map))
-        temp = (self.probability_map > 0) * self.probability_map
-        threshold = np.median(temp)
-        map = (self.probability_map > threshold + 29) * self.probability_map
-        plt.imsave("sssssy_map.png", map)
+        # print(np.amax(self.probability_map))
+        # temp = (self.probability_map > 0) * self.probability_map
+        # threshold = np.median(temp)
+        # map = (self.probability_map > threshold + 29) * self.probability_map
+        # plt.imsave("sssssy_map.png", map)
+
+
 
         return map
 
-    def find_mean_position(self):
-        map = self.process_map()
+    def find_mean_position(self) -> Vec2:
+        # map = self.process_map()
 
-        x_coords, y_coords = np.meshgrid(
-            range(map.shape[1]),
-            range(map.shape[0]),
-        )
+        # x_coords, y_coords = np.meshgrid(
+        #     range(map.shape[1]),
+        #     range(map.shape[0]),
+        # )
 
-        mean_x = np.sum(x_coords * map) / np.sum(map)
-        mean_y = np.sum(y_coords * map) / np.sum(map)
+        # mean_x = nsp.sum(x_coords * map) / np.sum(map)
+        # mean_y = np.sum(y_coords * map) / np.sum(map)
 
-        return self.to_position((mean_x, mean_y))
+        # kernel = circular_kernel(20)
+        kernel = rbf_kernel(23, 3.2) - 0. * rbf_kernel(23, 2.0)
+        export_image("kernel_pad", kernel)
+
+        np.save("probability_map", self.probability_map)
+        conv = cv2.filter2D(self.probability_map, -1, kernel)
+        export_image("probability_map_conv", conv)
+
+        first_max = np.sort()
+
+        max = np.argmax(conv, axis=None)
+        (x, y) = np.unravel_index(max, conv.shape)
+        position = self.to_position((int(x), int(y)))
+        logger.info(f"Found max index at {(x, y)}, position {position}")
+
+        return position
 
     def save(self):
-        plt.imsave("probability_map.png", self.probability_map)
+        export_image("probability_map", self.probability_map)
 
 
 class Drone:

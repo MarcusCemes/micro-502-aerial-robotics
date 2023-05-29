@@ -14,7 +14,7 @@ from .path_finding.dijkstra import Dijkstra
 from .path_finding.grid_graph import GridGraph
 from .types import Coords
 from .utils.debug import export_image
-from .utils.math import Vec2, clip, raytrace, circular_kernel
+from .utils.math import Vec2, clip, raytrace, rbf_kernel, circular_kernel
 
 DTYPE = np.float32
 
@@ -35,8 +35,8 @@ OCCUPATION_THRESHOLD = 3
 
 UNIT_SENSOR_VECTORS: Matrix2x4 = np.array([[1, 0, -1, 0], [0, 1, 0, -1]], dtype=DTYPE)
 
-KERNEL_SIZE = 18
-KERNEL_SIGMA = 2.5
+KERNEL_SIZE = 15
+KERNEL_SIGMA = 1.5
 
 
 class Sensor(Enum):
@@ -109,7 +109,7 @@ class Navigation:
             detection = position + Vec2(*detection)
             self.paint_detection(position, detection, not out_of_range)
 
-        self.paint_border()
+        # self.paint_border()
 
     def paint_detection(self, origin: Vec2, detection: Vec2, detected: bool) -> None:
         coords_origin = self.to_coords(origin)

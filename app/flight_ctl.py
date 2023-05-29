@@ -37,11 +37,6 @@ class FlightController:
     def next(self) -> bool:
         next = self._state.next(self._fctx)
 
-        # if self._fctx.ctx.debug_tick:
-        #     plt.figure("Range down")
-        #     plt.plot(np.arange(len(self.range_down_list)), self.range_down_list)
-        #     plt.savefig("output/range_down.png")
-
         if next is not None:
             if type(next) == self._state:
                 logger.error("🚨 Infinite loop detected in state machine")
@@ -68,7 +63,10 @@ class FlightController:
         pos_coords = nav.to_coords(position)
         target_coords = nav.to_coords(t.position)
 
-        path = nav.compute_path(pos_coords, target_coords)
+        path = None
+
+        if self._fctx.enable_path_finding:
+            path = nav.compute_path(pos_coords, target_coords)
 
         if path is not None:
             self._fctx.path = [self._fctx.navigation.to_position(c) for c in path]
@@ -87,9 +85,6 @@ class FlightController:
 
         if self._fctx.path is not None and len(self._fctx.path) > 0:
             next_waypoint = self._fctx.path[0]
-        else:
-            # logger.info("🚧 No path found, going straight to target")
-            pass
 
         # if self._fctx.ctx.drone.slow_speed:
         #     v = (next_waypoint - position).rotate((-s.yaw)).limit(VELOCITY_LIMIT_SLOW)
@@ -101,14 +96,13 @@ class FlightController:
         va = ANGULAR_SCAN_VELOCITY_DEG
 
         if not self._fctx.scan:
-            # logger.debug(f"angle {s.yaw} {t.orientation}")
             va = clip(
                 rad_to_deg(normalise_angle(s.yaw - t.orientation)),
                 -ANGULAR_VELOCITY_LIMIT_DEG,
                 ANGULAR_VELOCITY_LIMIT_DEG,
             )
 
-        # if self._fctx.ctx.debug_tick:
-        #     logger.debug(f"Target altitude is {target_altitude:.2f}")
+            # if self._fctx.ctx.debug_tick:
+            #     logger.debug(f"Yaw: {s.yaw:.3f}, orien: {t.orientation:.3f}, va: {va}")
 
         self._fctx.ctx.drone.cf.commander.send_hover_setpoint(v.x, v.y, va, t.altitude)
