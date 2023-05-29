@@ -99,6 +99,11 @@ class Navigation:
 
         path = algo.find_path(start, end)
 
+        # DO NOT DELETE THESE LINES
+        # FOR SOME REASON, THEY ARE VITAL FOR FLIGHT CONTROL
+        if self._ctx.debug_tick and path is not None:
+            self.plot_and_save_path(path)
+
         self._ctx.outlet.broadcast({"type": "path", "data": path})
 
         return path
@@ -211,6 +216,22 @@ class Navigation:
             distance = min(distance, sqrt((x - i) ** 2 + (y - j) ** 2))
 
         return distance / MAP_PX_PER_M
+
+    def plot_and_save_path(self, path: list[Coords]) -> None:
+        plt.figure("path")
+        plt.xlim(0, self.map.shape[0])
+        plt.ylim(0, self.map.shape[1])
+
+        for i, j in path:
+            plt.plot(
+                i,
+                j,
+                marker="o",
+                markersize=2,
+                markeredgecolor="red",
+            )
+
+        plt.savefig("output/path.png")
 
 
 class FieldGenerator:
